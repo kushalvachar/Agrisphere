@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200 shadow-sm p-5;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 bg-agri-600 hover:bg-agri-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-medium px-4 py-2 rounded-xl border border-slate-200 transition-colors;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full;
+  }
+  .pill-nav {
+    @apply px-3 py-2 rounded-xl text-sm font-medium transition-colors;
+  }
+  .input {
+    @apply block w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mt-1 outline-none focus:border-agri-400;
+  }
+}
