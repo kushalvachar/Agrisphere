@@ -15,8 +15,10 @@ import { buildFarmerAssistantPrompt } from '../ai/prompts/farmerAssistant.js';
 import { buildArrivalVolumeInsightPrompt } from '../ai/prompts/arrivalVolumeInsight.js';
 import { buildDemandForecastExplanationPrompt } from '../ai/prompts/demandForecastExplanation.js';
 import { buildOfferNegotiationSummaryPrompt } from '../ai/prompts/offerNegotiationSummary.js';
+import { buildVoiceCommandInterpreterPrompt } from '../ai/prompts/voiceCommandInterpreter.js';
+import { callPollinationsJSON, callPollinationsVisionJSON } from './pollinationsService.js';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.6-flash';
 
 let client = null;
 function getClient() {
@@ -27,40 +29,50 @@ function getClient() {
 
 /** Calls Gemini with a text-only prompt and parses the JSON response. */
 async function callGeminiJSON(prompt) {
-  const ai = getClient();
-  if (!ai) throw new Error('GEMINI_API_KEY not configured');
+  try {
+    const ai = getClient();
+    if (!ai) throw new Error('GEMINI_API_KEY not configured');
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: { responseMimeType: 'application/json' },
-  });
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: { responseMimeType: 'application/json' },
+    });
 
-  const text = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  return parseJSON(text);
+    const text = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    return parseJSON(text);
+  } catch (err) {
+    console.warn('Gemini call failed, falling back to Pollinations —', err.message);
+    return callPollinationsJSON(prompt);
+  }
 }
 
 /** Calls Gemini Vision with an image (base64) + text prompt. */
 async function callGeminiVisionJSON(prompt, imageBase64, mimeType = 'image/jpeg') {
-  const ai = getClient();
-  if (!ai) throw new Error('GEMINI_API_KEY not configured');
+  try {
+    const ai = getClient();
+    if (!ai) throw new Error('GEMINI_API_KEY not configured');
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType, data: imageBase64 } },
-        ],
-      },
-    ],
-    config: { responseMimeType: 'application/json' },
-  });
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: imageBase64 } },
+          ],
+        },
+      ],
+      config: { responseMimeType: 'application/json' },
+    });
 
-  const text = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  return parseJSON(text);
+    const text = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    return parseJSON(text);
+  } catch (err) {
+    console.warn('Gemini call failed, falling back to Pollinations —', err.message);
+    return callPollinationsVisionJSON(prompt, imageBase64, mimeType);
+  }
 }
 
 function parseJSON(text) {
@@ -178,6 +190,26 @@ export async function explainOfferNegotiation(data) {
       currentGap: 'See currentPricePerKg vs initialPricePerKg in the offer for the current gap.',
       aiAvailable: false,
     };
+  }
+}
+
+// "Browser acts as agent" fallback — classifies a voice transcript the
+// local keyword-based actionEngine.js couldn't resolve into one of the
+// fixed INTENTS values. Called by controllers/aiController.js's
+// interpretCommand (POST /api/ai/interpret), itself only reached from
+// context/VoiceAssistantContext.jsx when local detection returns
+// ASK_AI/EMPTY for a command-shaped utterance.
+export async function interpretVoiceCommand({ transcript, language = 'English', navTargets = [], farmerNames = [] }) {
+  try {
+    const prompt = buildVoiceCommandInterpreterPrompt({ transcript, language, navTargets, farmerNames });
+    const result = await callGeminiJSON(prompt);
+    return { intent: result.intent || 'EMPTY', params: result.params || {}, aiAvailable: true };
+  } catch (err) {
+    console.error('Gemini voice command interpretation failed, using fallback:', err.message);
+    // EMPTY tells the frontend to fall back to askGeneral() — same
+    // graceful degrade-to-conversational-assistant behavior as every
+    // other Gemini call in this file when the API key/call fails.
+    return { intent: 'EMPTY', params: {}, aiAvailable: false };
   }
 }
 

@@ -64,6 +64,10 @@ export const markets = [
 // Buyer Integration): processors, retail chains, exporters, and government
 // procurement agencies each carry realistic quantity/quality/delivery
 // requirements, alongside the original plain traders/aggregators.
+// NOTE: the first entry, 'ABC Foods (Demo)', is the buyer account the
+// "Try Demo Buyer Account" button on the login page signs into (see
+// seed.js, which attaches the User/password to this exact document by
+// name) — keep its `name` unchanged if you edit this list.
 export const buyers = [
   { name: 'ABC Foods (Demo)', buyerType: 'Trader/Aggregator', channel: 'Direct Trader', cropRequired: 'Tomato', gradeRequired: 'A', quantityRequiredTonnes: 20, offerPricePerKg: 24, location: 'Bengaluru', distanceKm: 70, requiredByDate: daysFromNow(4), verified: true, paymentReliabilityPct: 95, completedTransactions: 42, disputedTransactionsPct: 2 },
   { name: 'FreshMart Aggregators (Demo)', buyerType: 'Trader/Aggregator', channel: 'Direct Trader', cropRequired: 'Tomato', gradeRequired: 'A', quantityRequiredTonnes: 8, offerPricePerKg: 22.5, location: 'Kolar', distanceKm: 6, requiredByDate: daysFromNow(2), verified: true, paymentReliabilityPct: 88, completedTransactions: 25, disputedTransactionsPct: 5 },
@@ -377,6 +381,22 @@ export function generateMoreFarmers(count = 50) {
 }
 
 const FPO_SUFFIXES = ['Farmer Producer Company Ltd', 'Agro Producer Company Ltd', 'FPO', 'Agri Producers Ltd'];
+
+// Single curated demo FPO — this is the one account the "Try Demo FPO
+// Account" button on the login page signs into (see seed.js, which
+// attaches the User/password to this exact document by name), so it
+// intentionally has a real, memorable name and a fully "verified"
+// status rather than being one of the randomly-generated ones below.
+export const demoFPO = {
+  organizationName: 'Kolar Tomato Producers FPO',
+  registrationNumber: 'FPO/KA/2021/00042',
+  contactPerson: 'Manjunath Gowda',
+  phone: '+91-9845012345',
+  email: 'contact@kolartomatofpo.demo.in',
+  location: { village: 'Srinivaspur', district: 'Kolar', state: 'Karnataka' },
+  memberCount: 128,
+  verificationStatus: 'verified',
+};
 
 /** 20+ FPOs (models/FPO.js) — registration + verification-workflow demo
  * data. verificationStatus is mixed so the FPO verification workflow

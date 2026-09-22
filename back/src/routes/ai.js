@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { askAssistant } from '../controllers/aiController.js';
+import { askAssistant, interpretCommand } from '../controllers/aiController.js';
 const router = Router();
 router.post('/ask', askAssistant);
+router.post('/interpret', interpretCommand);
 export default router;

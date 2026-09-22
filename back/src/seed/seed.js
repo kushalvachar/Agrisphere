@@ -1,30 +1,47 @@
 // seed/seed.js — populates the PRIMARY MongoDB (MONGODB_URI) with demo
 // data (spec section 18). Run with: npm run seed
 //
-// Task 4 (Advanced Seed Data): now generates 50+ farmers, 20+ FPOs,
-// 40+ buyers and 100+ markets — the curated hand-written records from
+// Task 4 (Advanced Seed Data): generates 50+ farmers, 20+ FPOs, 40+
+// buyers and 100+ markets — the curated hand-written records from
 // seedData.js (a handful of each, referenced by exact name elsewhere in
 // the demo flow) are combined with programmatically-generated extras
 // from the new generateMore*()/generateFPOs() functions rather than
 // replaced, so nothing that already depends on e.g. 'ABC Foods (Demo)'
 // or 'Kolar APMC' existing breaks.
+//
+// Demo login credentials (Task: "one demo credential for easy login"):
+// this script also creates exactly one FPO User and one Buyer User,
+// attached to a specific named seeded profile each, so a presenter can
+// log in as a real FPO/Buyer without registering an account live. See
+// DEMO_FPO_LOGIN / DEMO_BUYER_LOGIN below — the same constants back the
+// "Try Demo Account" button in frontend/src/pages/Auth.jsx.
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import Farmer from '../models/Farmer.js';
 import Market from '../models/Market.js';
 import Buyer from '../models/Buyer.js';
 import FPO from '../models/FPO.js';
+import User from '../models/User.js';
 import Storage from '../models/Storage.js';
 import Logistics from '../models/Logistics.js';
 import PriceHistory from '../models/PriceHistory.js';
 import ArrivalVolume from '../models/ArrivalVolume.js';           // Feature 1
 import ProcurementHistory from '../models/ProcurementHistory.js'; // Feature 2
 import Offer from '../models/Offer.js';                            // Feature 3
+import { hashPassword } from '../services/authService.js';
 import {
   demoFarmer, additionalFarmers, markets, buyers, storageFacilities, logisticsOptions,
   generatePriceHistory, generateArrivalVolumeHistory, generateProcurementHistory,
-  generateMoreFarmers, generateMoreBuyers, generateMoreMarkets, generateFPOs,
+  generateMoreFarmers, generateMoreBuyers, generateMoreMarkets, generateFPOs, demoFPO,
 } from './seedData.js';
+
+// Shared with pages/Auth.jsx (kept in sync manually since the frontend
+// can't import backend source) — this is the ONE password used for
+// both one-click demo accounts. Not meant to be secure; it's a public
+// hackathon-prototype demo login, not a real credential.
+export const DEMO_PASSWORD = 'Demo@1234';
+export const DEMO_FPO_LOGIN = { identifier: 'fpo-demo@agrisphere.in', password: DEMO_PASSWORD };
+export const DEMO_BUYER_LOGIN = { identifier: 'buyer-demo@agrisphere.in', password: DEMO_PASSWORD };
 
 async function run() {
   const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/agrisphere';
@@ -36,6 +53,7 @@ async function run() {
     Market.deleteMany({}),
     Buyer.deleteMany({}),
     FPO.deleteMany({}),
+    User.deleteMany({}),
     Storage.deleteMany({}),
     Logistics.deleteMany({}),
     PriceHistory.deleteMany({}),
@@ -48,13 +66,16 @@ async function run() {
   const allFarmers = [...additionalFarmers, ...generateMoreFarmers(50)];
   const allBuyers = [...buyers, ...generateMoreBuyers(30)];
   const allMarkets = [...markets, ...generateMoreMarkets()];
-  const allFpos = generateFPOs(22);
+  // demoFPO is prepended (not appended) so its position in the inserted
+  // array is predictable — used below to grab its _id straight off the
+  // insertMany() result instead of a second findOne() round-trip.
+  const allFpos = [demoFPO, ...generateFPOs(22)];
 
   await Farmer.create(demoFarmer);
   await Farmer.insertMany(allFarmers);
   await Market.insertMany(allMarkets.map((m) => ({ ...m, source: 'DEMO_SEED' })));
-  await Buyer.insertMany(allBuyers.map((b) => ({ ...b, isDemoData: true })));
-  await FPO.insertMany(allFpos);
+  const buyerDocs = await Buyer.insertMany(allBuyers.map((b) => ({ ...b, isDemoData: true })));
+  const fpoDocs = await FPO.insertMany(allFpos);
   await Storage.insertMany(storageFacilities);
   await Logistics.insertMany(logisticsOptions);
   await PriceHistory.insertMany(generatePriceHistory());
@@ -62,6 +83,27 @@ async function run() {
   await ProcurementHistory.insertMany(generateProcurementHistory());
   // Offers start empty — they're created live during the demo via the
   // Digital Offer & Negotiation System (Feature 3), not seeded.
+
+  // --- One-click demo login accounts -----------------------------------
+  // FPO: attach to the curated demoFPO doc (inserted first, above).
+  const demoFpoDoc = fpoDocs[0];
+  const demoPasswordHash = await hashPassword(DEMO_PASSWORD);
+  await User.create({
+    role: 'fpo', email: DEMO_FPO_LOGIN.identifier, passwordHash: demoPasswordHash,
+    profileModel: 'FPO', profileId: demoFpoDoc._id,
+  });
+
+  // Buyer: attach to the curated 'ABC Foods (Demo)' doc by name, rather
+  // than assuming array order, so this keeps working even if the
+  // curated `buyers` list in seedData.js is reordered later.
+  const demoBuyerDoc = buyerDocs.find((b) => b.name === 'ABC Foods (Demo)');
+  if (!demoBuyerDoc) throw new Error("Seed data changed: could not find the 'ABC Foods (Demo)' buyer to attach the demo login to.");
+  const demoBuyerUser = await User.create({
+    role: 'buyer', email: DEMO_BUYER_LOGIN.identifier, passwordHash: demoPasswordHash,
+    profileModel: 'Buyer', profileId: demoBuyerDoc._id,
+  });
+  demoBuyerDoc.userId = demoBuyerUser._id;
+  await demoBuyerDoc.save();
 
   const institutionalCount = allBuyers.filter((b) => b.buyerType !== 'Trader/Aggregator').length;
 
@@ -75,6 +117,12 @@ async function run() {
   console.log(`  Price history points: synthetic, ~60 days per crop/market`);
   console.log(`  Arrival volume points: synthetic, ~60 days per crop/market`);
   console.log(`  Procurement history points: synthetic, 12 months per buyer/crop`);
+  console.log('');
+  console.log('Demo login credentials (for presenting the prototype):');
+  console.log(`  FPO   → ${DEMO_FPO_LOGIN.identifier} / ${DEMO_FPO_LOGIN.password}  (signs into "${demoFpoDoc.organizationName}")`);
+  console.log(`  Buyer → ${DEMO_BUYER_LOGIN.identifier} / ${DEMO_BUYER_LOGIN.password}  (signs into "${demoBuyerDoc.name}")`);
+  console.log('  (Also shown as a one-click "Try Demo Account" button on the FPO/Buyer login pages.)');
+  console.log('');
   console.log('NOTE: All farmer/buyer/FPO names and price/arrival/procurement data are');
   console.log('synthetic demo data for this SIH 2026 hackathon prototype, NOT official');
   console.log('AGMARKNET/eNAM data.');
