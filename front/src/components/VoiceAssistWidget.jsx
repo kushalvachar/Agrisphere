@@ -20,7 +20,7 @@
 // which route it's currently rendered under.
 import { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Square, Loader2 } from 'lucide-react';
-import { useTranslation } from '../context/LanguageContext.jsx';
+import { useTranslation, useLanguage } from '../context/LanguageContext.jsx';
 import { useVoiceAssistant } from '../context/VoiceAssistantContext.jsx';
 import { useOptionalFarmer } from '../context/FarmerContext.jsx';
 
@@ -57,6 +57,7 @@ export function useVoiceNavRegistration(navItems = [], basePath = '') {
 
 export default function VoiceAssistWidget() {
   const { t } = useTranslation();
+  const { locationReady } = useLanguage();
   const {
     status, muted, log, supported, welcomeMessage,
     speak, stop, toggleMute, startListening, stopListening, clearLog,
@@ -65,23 +66,34 @@ export default function VoiceAssistWidget() {
   const bottomRef = useRef(null);
   const hasAttemptedWelcomeRef = useRef(false);
 
-  // Required Experience: "Website Opens -> ... -> Voice Assistant starts
-  // speaking -> Farmer hears welcome message" — attempted automatically,
-  // once per browser tab (sessionStorage guard so it doesn't repeat on
-  // every route change/remount — now moot anyway since this component
-  // itself only mounts once per tab). Browsers may block audio from
-  // SpeechSynthesis until the very first user gesture on the page — if
-  // that happens here, this attempt is silently a no-op, and opening the
-  // widget (below) is a guaranteed-to-work user gesture that retries it.
+  // Task ("voice assistance should start automatically in that regional
+  // language"): gated on `locationReady` (see LanguageContext.jsx)
+  // instead of firing on a fixed timeout after mount. Geolocation's
+  // permission prompt + the reverse-geocode round trip are both
+  // unpredictable in duration and can easily exceed a hardcoded delay —
+  // greeting on a fixed timer risked speaking the OLD/default language
+  // welcome message before region-based detection had actually finished
+  // switching the language. Waiting for `locationReady` guarantees
+  // `welcomeMessage` already reflects the final language (region-
+  // detected, or the visitor's own saved choice, or the plain default —
+  // whichever applies) by the time this ever fires. Still attempted
+  // automatically, once per browser tab (sessionStorage guard so it
+  // doesn't repeat on every route change/remount — moot anyway since
+  // this component itself only mounts once per tab). Browsers may block
+  // audio from SpeechSynthesis until the very first user gesture on the
+  // page — if that happens here, this attempt is silently a no-op, and
+  // opening the widget (below) is a guaranteed-to-work user gesture that
+  // retries it.
   useEffect(() => {
+    if (!locationReady) return;
     if (hasAttemptedWelcomeRef.current) return;
     if (typeof window === 'undefined' || sessionStorage.getItem(WELCOMED_SESSION_KEY)) return;
     hasAttemptedWelcomeRef.current = true;
     sessionStorage.setItem(WELCOMED_SESSION_KEY, '1');
-    const timer = setTimeout(() => { if (!muted) speak(welcomeMessage); }, 1200);
+    const timer = setTimeout(() => { if (!muted) { setOpen(true); speak(welcomeMessage); } }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [locationReady]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -90,6 +102,7 @@ export default function VoiceAssistWidget() {
   const isListening = status === 'listening';
   const isBusy = status === 'processing' || status === 'speaking';
 
+  
   const handleOpen = () => {
     const willOpen = !open;
     setOpen(willOpen);

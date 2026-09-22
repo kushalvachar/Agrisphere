@@ -7,7 +7,7 @@
 // backend/src/controllers/recommendationController.js). This page adds
 // NO new calculations; it only translates the existing response into
 // plain-language cards and badges instead of raw tables.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, MapPin, Loader2, ShieldCheck, Truck, TrendingUp, TrendingDown, Minus, Clock3 } from 'lucide-react';
 import { api } from '../api/client.js';
@@ -42,7 +42,8 @@ export default function FarmerDashboard() {
     window.__agrisphereContext = { ...(window.__agrisphereContext || {}), farmer, farmerRecommendation: result };
   }, [farmer, result]);
 
-  const findBestOption = async () => {
+
+  const findBestOption = useCallback(async () => {
     if (!farmer) return;
     setLoading(true); setError('');
     try {
@@ -91,8 +92,20 @@ export default function FarmerDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [farmer, farmerId, lang, t]);
 
+  useEffect(() => {
+  window.__runBestSellingOption = findBestOption;
+
+  console.log(
+    "Best selling option registered",
+    typeof window.__runBestSellingOption
+  );
+
+  return () => {
+    delete window.__runBestSellingOption;
+  };
+}, [findBestOption]);
   // "View Details" used to just dump the farmer on the generic Buyers
   // list/Market Intelligence tab with no indication of which option they'd
   // clicked. For a buyer option, carry that buyer's name over as a

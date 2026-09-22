@@ -28,6 +28,13 @@ export default function BuyerDiscovery({
   // to hunt for it in the full list.
   const [searchParams] = useSearchParams();
   const highlightBuyerName = searchParams.get('buyer');
+  // Feature: Multilingual Voice AGENT — RUN_SMART_MATCHING (see
+  // context/VoiceAssistantContext.jsx's runSmartMatching()) calls the
+  // matching API itself (so it has a result to read aloud immediately)
+  // AND navigates here with `?autoMatch=1`, so this page re-runs the
+  // exact same match and shows the exact same ranked list the farmer
+  // just heard, instead of landing on the plain unranked buyer list.
+  const autoMatch = searchParams.get('autoMatch') === '1';
   const highlightedCardRef = useRef(null);
   const [crop, setCrop] = useState(initialCrop);
   const [buyerType, setBuyerType] = useState('All Types');
@@ -74,6 +81,11 @@ export default function BuyerDiscovery({
       setLoadingMatch(false);
     }
   };
+
+  useEffect(() => {
+    if (autoMatch) runMatch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMatch]);
 
   // Feature 3: kick off a digital offer thread against a buyer's listed
   // price, then jump to the Offers tab to negotiate it.

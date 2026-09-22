@@ -24,6 +24,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
 import { SOURCE_STRINGS, LANGUAGES } from '../i18n/sourceStrings.js';
 import { translateTexts } from '../services/translate.js';
+import { applyLocationLanguageIfUnset } from '../i18n/locationLanguage.js';
 
 const LanguageContext = createContext(null);
 const cacheKey = (lang) => `agrisphere.i18n.${lang}`;
@@ -31,6 +32,17 @@ const cacheKey = (lang) => `agrisphere.i18n.${lang}`;
 export function LanguageProvider({ children }) {
   const { i18n } = useI18n();
   const [lang, setLangState] = useState(i18n.language || 'en');
+  // Task ("voice assistance should start automatically in that regional
+  // language"): starts false, flips to true once the location→state→
+  // language detection attempt has SETTLED — whether it changed the
+  // language, found nothing mappable, or the visitor already had a
+  // saved preference so it skipped entirely. VoiceAssistWidget waits
+  // for this before firing its auto-greeting, so the greeting is never
+  // spoken in the wrong (default/previous) language while detection is
+  // still in flight — a real risk otherwise, since geolocation's
+  // permission prompt + the reverse-geocode network round trip can
+  // easily take longer than a fixed short timeout.
+  const [locationReady, setLocationReady] = useState(false);
   const [dict, setDict] = useState(() => {
     if (lang === 'en') return SOURCE_STRINGS;
     try {
@@ -40,6 +52,21 @@ export function LanguageProvider({ children }) {
     return SOURCE_STRINGS;
   });
   const [translating, setTranslating] = useState(false);
+
+  // Runs once, on first mount of the whole app (LanguageProvider wraps
+  // everything — see main.jsx) — moved here from App.jsx so
+  // `locationReady` can live right next to the `lang` state it gates,
+  // and so it only ever runs ONCE no matter how many routes/components
+  // read this context (previously App.jsx re-running this effect would
+  // have meant a second geolocation permission prompt on remount).
+  useEffect(() => {
+    let cancelled = false;
+    applyLocationLanguageIfUnset(i18n).finally(() => {
+      if (!cancelled) setLocationReady(true);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Stay in sync no matter which picker changed the language — the main
   // nav's LanguageSwitcher (i18n.changeLanguage directly), this
@@ -91,7 +118,7 @@ export function LanguageProvider({ children }) {
   };
 
   return (
-    <LanguageContext.Provider value={{ lang, setLang, languages: LANGUAGES, dict, translating }}>
+    <LanguageContext.Provider value={{ lang, setLang, languages: LANGUAGES, dict, translating, locationReady }}>
       {children}
     </LanguageContext.Provider>
   );

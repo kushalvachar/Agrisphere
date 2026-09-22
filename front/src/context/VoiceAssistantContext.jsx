@@ -24,10 +24,10 @@
 // gracefully instead of showing a mic button that silently does nothing.
 import { createContext, useContext, useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLanguage } from './LanguageContext.jsx';
-import { useTranslation } from 'react-i18next';
+import { useLanguage, useTranslation as useDictTranslation } from './LanguageContext.jsx';
 import i18nInstance, { getLanguageMeta } from '../i18n/index.js';
 import { api } from '../api/client.js';
+import { detectAction, INTENTS } from '../voice/actionEngine.js';
 
 const VoiceAssistantContext = createContext(null);
 
@@ -46,98 +46,31 @@ export function useVoiceAssistant() {
 // out of sync with the real, reviewed dictionary.
 const KANNADA_WELCOME = 'ನಮಸ್ಕಾರ. AgriSphere ಗೆ ಸ್ವಾಗತ. ನಾನು ನಿಮ್ಮ ಕೃಷಿ ಸಹಾಯಕ. ನಿಮ್ಮ ಬೆಳೆಗಳಿಗೆ ಉತ್ತಮ ಮಾರುಕಟ್ಟೆ ಹುಡುಕಲು, ಬೆಲೆ ಮಾಹಿತಿ ಪಡೆಯಲು, ಖರೀದಿದಾರರನ್ನು ಸಂಪರ್ಕಿಸಲು ನಾನು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?';
 
-// Best-effort keyword sets for ACTION intents (best market / why / help
-// / sell-help / find-buyers) in the 5 languages the spec names
-// explicitly (Kannada, Tamil, Telugu, Hindi, English). Plain PAGE
-// NAVIGATION ("dashboard", "market", "buyers"…) is handled separately
-// below against the app's own already-reviewed per-language `nav.*`
-// bundle (see NAV below) rather than a second hand-written list here,
-// so navigation works correctly in all 10 supported languages, not
-// just these 5.
-//
-// Honest limitation: a farmer speaking one of the other 5 supported
-// languages (Marathi, Malayalam, Bengali, Gujarati, Punjabi) won't
-// trigger these specific action shortcuts — the utterance instead
-// falls through to `askGeneral` below, which sends it to the
-// Gemini-backed /api/ai/ask endpoint. Gemini both understands the
-// question and replies in the farmer's language regardless (the
-// endpoint already takes a `language` parameter), so the farmer still
-// gets a correct, localized, spoken answer — it just isn't guaranteed
-// to trigger an in-app navigation or the exact best-market flow the way
-// the 5 keyword-covered languages do.
-const ACTION_KEYWORDS = {
-  en: {
-    bestMarket: ['best market', 'best price', 'where should i sell', 'which market', 'find best market', 'find the best market'],
-    why: ['why', 'explain'],
-    help: ['what can i do', 'what can you do', 'what is this app', 'what is this'],
-    sellHelp: ['help me sell', 'how do i sell', 'sell my crop'],
-    findBuyers: ['find buyers', 'find a buyer', 'show buyers', 'connect with buyers'],
-  },
-  hi: {
-    bestMarket: ['सबसे अच्छा बाजार', 'सबसे अच्छा भाव', 'कहां बेचूं', 'कहाँ बेचूं', 'बेहतर बाजार'],
-    why: ['क्यों'],
-    help: ['क्या कर सकते', 'यह क्या है', 'मदद करो'],
-    sellHelp: ['फसल कैसे बेचें', 'बेचने में मदद'],
-    findBuyers: ['खरीदार खोजो', 'खरीदार ढूंढो'],
-  },
-  kn: {
-    bestMarket: ['ಉತ್ತಮ ಮಾರುಕಟ್ಟೆ', 'ಎಲ್ಲಿ ಮಾರಾಟ', 'ಉತ್ತಮ ಬೆಲೆ'],
-    why: ['ಏಕೆ'],
-    help: ['ಏನು ಮಾಡಬಹುದು', 'ಸಹಾಯ ಮಾಡಿ'],
-    sellHelp: ['ಬೆಳೆ ಮಾರಾಟ ಮಾಡುವುದು ಹೇಗೆ'],
-    findBuyers: ['ಖರೀದಿದಾರರನ್ನು ಹುಡುಕಿ'],
-  },
-  ta: {
-    bestMarket: ['சிறந்த சந்தை', 'எங்கே விற்பது', 'சிறந்த விலை'],
-    why: ['ஏன்'],
-    help: ['என்ன செய்ய முடியும்', 'உதவி'],
-    sellHelp: ['பயிரை விற்பது எப்படி'],
-    findBuyers: ['வாங்குபவர்களை தேடு'],
-  },
-  te: {
-    bestMarket: ['ఉత్తమ మార్కెట్', 'ఎక్కడ అమ్మాలి', 'ఉత్తమ ధర'],
-    why: ['ఎందుకు'],
-    help: ['ఏమి చేయగలరు', 'సహాయం'],
-    sellHelp: ['పంట ఎలా అమ్మాలి'],
-    findBuyers: ['కొనుగోలుదారులను కనుగొనండి'],
-  },
+// Feature: Multilingual Voice Agent — CHANGE_LANGUAGE confirmation,
+// spoken in the LANGUAGE BEING SWITCHED TO (not the previous one), so
+// the farmer gets immediate audible proof the switch worked. Hardcoded
+// per-language rather than run through the dictionary/translate
+// pipeline, same reasoning as KANNADA_WELCOME above: this fires the
+// instant i18n.changeLanguage() resolves, before the dictionary's own
+// `dict`/`t()` for the NEW language has necessarily finished loading —
+// see LanguageContext.jsx's translate-on-demand caching.
+const LANGUAGE_SWITCH_CONFIRMATION = {
+  en: 'Language switched to English.',
+  hi: 'भाषा हिन्दी में बदल दी गई है।',
+  kn: 'ಭಾಷೆಯನ್ನು ಕನ್ನಡಕ್ಕೆ ಬದಲಾಯಿಸಲಾಗಿದೆ.',
+  ta: 'மொழி தமிழுக்கு மாற்றப்பட்டது.',
+  te: 'భాష తెలుగుకు మార్చబడింది.',
+  ml: 'ഭാഷ മലയാളത്തിലേക്ക് മാറ്റി.',
+  mr: 'भाषा मराठीत बदलली आहे.',
+  bn: 'ভাষা বাংলায় পরিবর্তন করা হয়েছে।',
+  gu: 'ભાષા ગુજરાતીમાં બદલાઈ ગઈ છે.',
+  pa: 'ਭਾਸ਼ਾ ਪੰਜਾਬੀ ਵਿੱਚ ਬਦਲ ਦਿੱਤੀ ਗਈ ਹੈ.',
 };
-
-// A few English-only synonyms layered on top of the vetted nav.*
-// bundle so a phrase like the spec's own example ("Show my crop
-// prices") resolves to the market page even though "crop prices" is
-// not the literal nav label text ("Market Intelligence").
-const NAV_SYNONYMS_EN = { market: ['crop price', 'prices', 'mandi'], dashboard: ['home'] };
-
-function detectIntent(transcript, lang, navBundle) {
-  const lower = transcript.trim().toLowerCase();
-  if (!lower) return { type: 'empty' };
-
-  const actions = ACTION_KEYWORDS[lang];
-  if (actions) {
-    if (actions.bestMarket.some((k) => lower.includes(k.toLowerCase()))) return { type: 'bestMarket' };
-    if (actions.why.some((k) => lower.includes(k.toLowerCase()))) return { type: 'why' };
-    if (actions.sellHelp.some((k) => lower.includes(k.toLowerCase()))) return { type: 'sellHelp' };
-    if (actions.findBuyers.some((k) => lower.includes(k.toLowerCase()))) return { type: 'navigate', target: 'buyers' };
-    if (actions.help.some((k) => lower.includes(k.toLowerCase()))) return { type: 'help' };
-  }
-
-  for (const key of ['dashboard', 'market', 'buyers', 'offers', 'transactions']) {
-    const label = navBundle?.[key];
-    const synonyms = lang === 'en' ? (NAV_SYNONYMS_EN[key] || []) : [];
-    const candidates = [label, ...synonyms].filter(Boolean);
-    if (candidates.some((c) => lower.includes(String(c).toLowerCase()))) {
-      return { type: 'navigate', target: key };
-    }
-  }
-
-  return { type: 'question', text: transcript };
-}
 
 export function VoiceAssistantProvider({ children }) {
   const navigate = useNavigate();
   const { lang } = useLanguage();
-  const { t } = useTranslation(); // TASK 1 fix: react-i18next, same source as the rest of the app
+  const { t } = useDictTranslation();
   const [status, setStatus] = useState('idle'); // idle | listening | processing | speaking
   const [muted, setMuted] = useState(false);
   const [log, setLog] = useState([]); // { from: 'user'|'assistant', text }
@@ -199,7 +132,7 @@ export function VoiceAssistantProvider({ children }) {
 
   const welcomeMessage = useMemo(() => {
     if (lang === 'kn') return KANNADA_WELCOME;
-    return [1, 2, 3, 4, 5].map((n) => t(`widget.voiceWelcome${n}`)).join(' ');
+    return [1, 2, 3, 4, 5].map((n) => t(`voiceWelcome${n}`)).join(' ');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, t]);
 
@@ -207,12 +140,23 @@ export function VoiceAssistantProvider({ children }) {
   // the hand-covered action intents above goes here, in every one of
   // the 10 supported languages (Gemini itself is what understands the
   // language, not a keyword list). Grounded in whatever page context is
-  // currently available via window.__agrisphereContext, same mechanism
-  // AIAssistantWidget already uses.
+  // currently available via window.__agrisphereContext (same mechanism
+  // AIAssistantWidget already uses), PLUS this session's own farmer
+  // profile (crop/quantity/grade) as `farmerProfile` — sent separately
+  // from window.__agrisphereContext because that object is only
+  // populated once the farmer has actually visited a page that sets it
+  // (Dashboard, Market Intelligence…), whereas farmerRef here is set
+  // the moment ANY farmer-role page mounts (see setFarmerContext /
+  // useVoiceNavRegistration). The backend uses it to narrow the live
+  // market snapshot it always attaches to every question (Task: "AI
+  // should be knowing the market details") to the farmer's own crop —
+  // see controllers/aiController.js — so a general "what's my best
+  // market" -type question gets a relevant answer even from a page
+  // that never itself loaded market data.
   const askGeneral = useCallback(async (question) => {
     setStatus('processing');
     try {
-      const context = window.__agrisphereContext || {};
+      const context = { ...(window.__agrisphereContext || {}), farmerProfile: farmerRef.current || undefined };
       const res = await api.askAssistant({ question, context, language: languageEnglishName });
       memoryRef.current.lastAnswer = res.answer;
       speak(res.answer);
@@ -228,74 +172,331 @@ export function VoiceAssistantProvider({ children }) {
   // aiRecommendation.reasoning comes back already localized (see
   // ai/prompts/saleRecommendation.js).
   const findBestMarket = useCallback(async () => {
-    const farmer = farmerRef.current;
-    if (!farmer?.crop || !farmer?.quantityTonnes) {
-      speak(t('widget.voiceNoFarmerProfile'));
-      return;
-    }
-    setStatus('processing');
-    try {
-      const res = await api.getRecommendation({
-        crop: farmer.crop,
-        quantityTonnes: farmer.quantityTonnes,
-        grade: farmer.grade,
-        storageAvailable: farmer.storageAvailable,
-        farmerId: farmer.farmerId,
-        language: languageEnglishName,
-      });
-      if (!res.bestOption) {
-        speak(res.message || t('widget.voiceNoRecommendationYet'));
-        return;
-      }
-      memoryRef.current.lastRecommendation = res; // remembered for a follow-up "Why?"
-      const reasons = (res.aiRecommendation?.reasoning || []).slice(0, 3).join('. ');
-      speak(reasons ? `${res.bestOption.label}. ${reasons}` : `${res.bestOption.label}.`);
-    } catch (err) {
-      speak(`Sorry — ${err.message}`);
-    }
-  }, [languageEnglishName, speak, t]);
+  const farmer = farmerRef.current;
+
+  console.log("Trying farmer dashboard action");
+
+if (typeof window.__runBestSellingOption === "function") {
+  await window.__runBestSellingOption();
+} else {
+  console.log("Best selling option function not found");
+}
+
+  if (!farmer?.crop) {
+    speak(t('voiceNoFarmerProfile'));
+    return;
+  }
+
+  speak(
+    t('voiceRunningBestMarketAnalysis') ||
+    'Running best selling option simulation now.'
+  );
+}, [speak, t]);
 
   // Session memory in action: "Why?" re-explains the LAST
   // recommendation this session, without re-running the whole engine.
   const explainWhy = useCallback(() => {
     const rec = memoryRef.current.lastRecommendation;
-    if (!rec?.bestOption) { speak(t('widget.voiceNoRecommendationYet')); return; }
+    if (!rec?.bestOption) { speak(t('voiceNoRecommendationYet')); return; }
     const reasons = (rec.aiRecommendation?.reasoning || []).join('. ');
-    speak(reasons || rec.disclaimer || t('widget.voiceNoRecommendationYet'));
+    speak(reasons || rec.disclaimer || t('voiceNoRecommendationYet'));
   }, [speak, t]);
 
   // Navigation Assistance — resolves a target key ('dashboard'|
-  // 'market'|'buyers'|'offers'|'transactions') against whatever
-  // navItems the current layout registered via setNavContext.
-  const goTo = useCallback((targetKey) => {
+  // 'market'|'buyers'|'offers'|'transactions'|'lot'|'analytics'|
+  // 'assistant') against whatever navItems the current layout
+  // registered via setNavContext, WITHOUT navigating or speaking
+  // (pure lookup) — shared by goTo() below and by runSmartMatching(),
+  // which needs the raw path to append its own `?autoMatch=1` query
+  // param rather than goTo's default "speak the page label" behavior.
+  const resolveNavPath = useCallback((targetKey) => {
     const { basePath, navItems } = navConfigRef.current;
     const item = navItems.find((n) => (n.labelKey || '').split('.').pop() === targetKey);
-    if (item) {
-      navigate(item.to);
-      speak(item.label || t(item.labelKey) || targetKey);
-    } else if (basePath) {
-      navigate(`${basePath}/${targetKey}`); // best-effort guess if this exact page isn't in the registered nav list
+    if (item) return { path: item.to, label: item.label || t(item.labelKey) };
+    if (basePath) return { path: `${basePath}/${targetKey}`, label: null }; // best-effort guess if this exact page isn't in the registered nav list
+    return { path: null, label: null };
+  }, [t]);
+
+  // Feature: Multilingual Voice AGENT — every OPEN_*/SHOW_MARKET_PRICES/
+  // SHOW_TREND/SHOW_NEAREST_MARKET navigation intent goes through this
+  // one function. `crop`, when given (SHOW_MARKET_PRICES/SHOW_TREND/
+  // SHOW_NEAREST_MARKET carry it as a param), is appended as a
+  // `?crop=` query param — pages/MarketIntelligence.jsx reads it to
+  // preselect that crop instead of always opening on its own default —
+  // and is also read out so the farmer hears which crop was opened.
+  const goTo = useCallback((targetKey, { crop } = {}) => {
+    const { path, label } = resolveNavPath(targetKey);
+    if (!path) { speak(t('voiceNavUnavailable')); return; }
+    navigate(crop ? `${path}?crop=${encodeURIComponent(crop)}` : path);
+    const spoken = label || targetKey;
+    speak(crop ? `${spoken} — ${crop}` : spoken);
+  }, [navigate, resolveNavPath, speak, t]);
+
+  // Feature: Multilingual Voice AGENT — RUN_SMART_MATCHING. Follows the
+  // spec's own numbered flow: identify the current farmer (or, for an
+  // FPO with no individual farmer profile registered, their most
+  // recently formed Smart Lot instead — same crop/quantity/grade shape),
+  // call the EXISTING deterministic Smart Matching API
+  // (POST /api/buyers/match — services/matchingService.js, already used
+  // by the "Run Smart Matching" button on pages/BuyerDiscovery.jsx),
+  // navigate to that same results page, and read the count + top match
+  // aloud. Reuses that one existing endpoint rather than adding a new
+  // one, and only ever makes the ONE extra `listLots` call when it's
+  // actually needed (FPO with no farmer profile) — see "minimize
+  // unnecessary API calls".
+  const runSmartMatching = useCallback(async () => {
+    setStatus('processing');
+    try {
+      const farmer = farmerRef.current;
+      const isFpo = navConfigRef.current.basePath.startsWith('/fpo');
+      let crop, quantityTonnes, grade;
+
+      if (farmer?.crop && farmer?.quantityTonnes) {
+        ({ crop, quantityTonnes, grade } = farmer);
+      } else if (isFpo) {
+        const lotsRes = await api.listLots({});
+        const lot = (lotsRes.lots || [])[0];
+        if (!lot) { speak(t('voiceNoLotsYet')); return; }
+        crop = lot.crop; quantityTonnes = lot.totalQuantityTonnes; grade = lot.grade;
+      } else {
+        speak(t('voiceNoFarmerProfile'));
+        return;
+      }
+
+      const res = await api.matchBuyers({ crop, quantityTonnes, grade });
+      const matches = res.matches || [];
+      const { path } = resolveNavPath('buyers');
+      if (path) navigate(`${path}?autoMatch=1`); // BuyerDiscovery.jsx re-runs the SAME match call itself on this flag, so the visual page matches what's spoken
+
+      if (!matches.length) { speak(res.message || t('voiceNoMatchesFound')); return; }
+      const top = matches[0];
+      speak([
+        t('voiceSmartMatchingFoundPrefix'), matches.length, t('voiceSmartMatchingFoundSuffix'),
+        t('voiceSmartMatchingTopBuyerPrefix'), top.buyer.name + ',', top.matchPercent, t('voiceSmartMatchingPercentSuffix'),
+      ].join(' '));
+    } catch (err) {
+      speak(`Sorry — ${err.message}`);
+    } finally {
+      setStatus((s) => (s === 'processing' ? 'idle' : s));
     }
-  }, [navigate, speak, t]);
+  }, [navigate, resolveNavPath, speak, t]);
+
+  // Feature: Multilingual Voice AGENT — OPEN_NAMED_DASHBOARD ("open
+  // Ramesh's dashboard", "go to Ramesh"). Farmer list is cached in a
+  // ref with a short TTL so repeated navigation commands in one
+  // session (e.g. "open Ramesh", then "open Suresh" a few seconds
+  // later) don't refetch the full farmer list every single time —
+  // same "minimize unnecessary API calls" reasoning as
+  // runSmartMatching's lot lookup above.
+  const FARMER_LIST_TTL_MS = 60 * 1000;
+  const farmerListCacheRef = useRef({ data: null, fetchedAt: 0 });
+
+  const getFarmerList = useCallback(async () => {
+    const cache = farmerListCacheRef.current;
+    const now = Date.now();
+    if (cache.data && now - cache.fetchedAt < FARMER_LIST_TTL_MS) return cache.data;
+    const res = await api.listFarmers();
+    const list = res.farmers || res.data || (Array.isArray(res) ? res : []) || [];
+    farmerListCacheRef.current = { data: list, fetchedAt: now };
+    return list;
+  }, []);
+
+  // Case-insensitive best match against a spoken name: exact match
+  // first, then substring (either direction, so "Ramesh" matches
+  // "Ramesh Kumar" and vice versa), then a loose token-overlap fuzzy
+  // match as a last resort (handles minor mis-hearings/mis-transcriptions).
+  const matchFarmerByName = useCallback((farmers, name) => {
+    const target = (name || '').trim().toLowerCase();
+    if (!target || !farmers?.length) return null;
+
+    const exact = farmers.find((f) => (f.name || '').trim().toLowerCase() === target);
+    if (exact) return exact;
+
+    const substring = farmers.find((f) => {
+      const n = (f.name || '').trim().toLowerCase();
+      return n && (n.includes(target) || target.includes(n));
+    });
+    if (substring) return substring;
+
+    const targetTokens = target.split(/\s+/).filter(Boolean);
+    let best = null;
+    let bestScore = 0;
+    for (const f of farmers) {
+      const nameTokens = (f.name || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const score = targetTokens.filter((tok) => nameTokens.some((nt) => nt.startsWith(tok) || tok.startsWith(nt))).length;
+      if (score > bestScore) { bestScore = score; best = f; }
+    }
+    return bestScore > 0 ? best : null;
+  }, []);
+
+  const openNamedDashboard = useCallback(async (name) => {
+    setStatus('processing');
+    try {
+      const farmers = await getFarmerList();
+      const match = matchFarmerByName(farmers, name);
+      if (!match) {
+        speak(`${t('voiceFarmerNotFound') || "I couldn't find a farmer named"} ${name || ''}`.trim());
+        return;
+      }
+      navigate('/farmer/' + match._id);
+      speak(`Opening ${match.name}'s dashboard`);
+    } catch (err) {
+      speak(`Sorry — ${err.message}`);
+    } finally {
+      setStatus((s) => (s === 'processing' ? 'idle' : s));
+    }
+  }, [getFarmerList, matchFarmerByName, navigate, speak, t]);
+
+  // Feature: Multilingual Voice AGENT — SHOW_MY_CROPS / SHOW_MY_LOTS
+  // ("Profile" commands). Answered DIRECTLY from the already-registered
+  // farmerRef with NO navigation and NO API call at all (the fastest,
+  // cheapest possible response — see "minimize unnecessary API calls")
+  // when a farmer profile is available. On the FPO role (which has no
+  // individual "my crop", only pooled Lots) SHOW_MY_LOTS instead
+  // navigates to the real Create/View Smart Lots page, exactly like a
+  // plain "open lots" navigation command would.
+  const showMyCropInfo = useCallback(() => {
+    const farmer = farmerRef.current;
+    if (!farmer?.crop) { speak(t('voiceNoFarmerProfile')); return; }
+    speak([
+      t('voiceMyCropPrefix'), farmer.crop + ',', farmer.quantityTonnes, t('voiceMyCropQuantitySuffix'),
+      farmer.grade, t('voiceMyCropGradeSuffix'),
+    ].join(' '));
+  }, [speak, t]);
+
+  const showMyLots = useCallback(() => {
+    const isFpo = navConfigRef.current.basePath.startsWith('/fpo');
+    if (isFpo) { goTo('lot'); return; }
+    showMyCropInfo(); // farmers don't have individual "Lots" in this app's data model — their own crop IS the closest equivalent
+  }, [goTo, showMyCropInfo]);
+
+  // Feature: Multilingual Voice AGENT — CHANGE_LANGUAGE. Reuses the
+  // EXACT SAME i18next instance every other language switch already
+  // goes through (LanguageSwitcher.jsx, i18n/locationLanguage.js), so
+  // this is a real, permanent, app-wide language change — not a
+  // voice-only quirk — and every other translated string (nav labels,
+  // dashboards, future voice commands) switches with it immediately.
+  const changeLanguageAction = useCallback(async (languageCode) => {
+    if (!languageCode || !LANGUAGE_SWITCH_CONFIRMATION[languageCode]) return;
+    await i18nInstance.changeLanguage(languageCode);
+    speak(LANGUAGE_SWITCH_CONFIRMATION[languageCode]);
+  }, [speak]);
+
+  // The Voice Action Engine's execution layer: voice/actionEngine.js's
+  // detectAction() does pure, structured intent detection (no hooks, no
+  // navigation, unit-testable on its own); this switch is the ONLY
+  // place that turns a structured `{ intent, params }` into an actual
+  // frontend action / API call, per intent name.
+  // Execution layer, factored out of handleUtterance so BOTH the local
+  // detectAction() result AND the remote /api/ai/interpret result (see
+  // interpretViaAI below) can be routed through the exact same switch —
+  // "same intent vocabulary as actionEngine.js's INTENTS", dispatched
+  // identically regardless of which detector produced it.
+  const executeIntent = useCallback(async (intent, params, transcript) => {
+    switch (intent) {
+      case INTENTS.OPEN_DASHBOARD: goTo('dashboard'); break;
+      case INTENTS.OPEN_MARKET_INTELLIGENCE: goTo('market', params); break;
+      case INTENTS.OPEN_BUYER_DEMAND: goTo('buyers'); break;
+      case INTENTS.OPEN_OFFERS: goTo('offers'); break;
+      case INTENTS.OPEN_TRANSACTIONS: goTo('transactions'); break;
+      case INTENTS.OPEN_ANALYTICS: goTo('analytics'); break;
+      case INTENTS.OPEN_AI_CHAT: goTo('assistant'); break;
+      // No Profile/Settings page exists in this prototype yet, and "FPO
+      // Section" isn't a thing inside the Farmer/Buyer apps (FPO is its
+      // own separate role, not a section within another role) — said
+      // plainly rather than silently doing nothing or navigating
+      // somewhere wrong.
+      case INTENTS.OPEN_PROFILE:
+      case INTENTS.OPEN_SETTINGS: speak(t('voiceFeatureNotAvailable')); break;
+      case INTENTS.OPEN_FPO_SECTION:
+        if (navConfigRef.current.basePath.startsWith('/fpo')) goTo('dashboard');
+        else speak(t('voiceFeatureNotAvailable'));
+        break;
+      case INTENTS.OPEN_NAMED_DASHBOARD: openNamedDashboard(params?.name); break;
+      case INTENTS.SHOW_MARKET_PRICES: goTo('market', params); break;
+      case INTENTS.SHOW_TREND: goTo('market', params); break;
+      case INTENTS.SHOW_NEAREST_MARKET: goTo('market', params); break;
+      case INTENTS.SHOW_BEST_MARKET: await findBestMarket(); break;
+      case INTENTS.RUN_SMART_MATCHING: runSmartMatching(); break;
+      case INTENTS.SHOW_MATCH_RESULTS: goTo('buyers'); break;
+      case INTENTS.CHANGE_LANGUAGE: changeLanguageAction(params?.languageCode); break;
+      case INTENTS.SHOW_MY_CROPS: showMyCropInfo(); break;
+      case INTENTS.SHOW_MY_LOTS: showMyLots(); break;
+      case INTENTS.HELP: speak(welcomeMessage); break;
+      case INTENTS.EXPLAIN_WHY: explainWhy(); break;
+      case INTENTS.ASK_AI: askGeneral(params?.question || transcript); break;
+      case INTENTS.EMPTY: default: break;
+    }
+  }, [
+    goTo, findBestMarket, runSmartMatching, changeLanguageAction, showMyCropInfo, showMyLots,
+    explainWhy, welcomeMessage, speak, askGeneral, openNamedDashboard, t,
+  ]);
+
+  // A short, imperative-sounding transcript ("open Ramesh", "go to
+  // market") is far more likely to be a mis-transcribed/other-language
+  // NAVIGATION command than a genuine conversational question, so only
+  // THESE get sent to the (paid, slower) /api/ai/interpret endpoint —
+  // anything longer or clearly phrased as a question goes straight to
+  // askGeneral() as before, same as it always has.
+  const looksCommandShaped = useCallback((transcript) => {
+    const trimmed = (transcript || '').trim();
+    if (!trimmed || trimmed.endsWith('?')) return false;
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length === 0 || words.length > 6) return false;
+    const questionStarters = ['what', 'why', 'how', 'is', 'are', 'can', 'could', 'should', 'when', 'where', 'who', 'which', 'do', 'does', 'did', 'will', 'would'];
+    const firstWord = words[0].toLowerCase().replace(/[^a-z]/g, '');
+    return !questionStarters.includes(firstWord);
+  }, []);
+
+  // Feature: "browser acts as agent" fallback. actionEngine.js's local,
+  // free, instant keyword detection ALWAYS runs first (see
+  // handleUtterance); this only fires when that returns ASK_AI/EMPTY
+  // for something that still looks command-shaped — i.e. the farmer
+  // almost certainly said a command, just in a phrasing/language the
+  // local keyword table doesn't cover. Reuses the SAME cached farmer
+  // list as openNamedDashboard so "open dashboard" / "go to Ramesh"
+  // style utterances don't trigger a second farmer-list fetch.
+  const interpretViaAI = useCallback(async (transcript) => {
+    setStatus('processing');
+    try {
+      const navTargets = (navConfigRef.current.navItems || [])
+        .map((n) => (n.labelKey || '').split('.').pop())
+        .filter(Boolean);
+      let farmerNames = [];
+      try {
+        const farmers = await getFarmerList();
+        farmerNames = farmers.map((f) => f.name).filter(Boolean);
+      } catch { /* non-fatal — interpret endpoint still works without farmerNames */ }
+
+      const res = await api.interpretVoiceCommand({
+        transcript, language: languageEnglishName, navTargets, farmerNames,
+      });
+      const intent = res?.intent;
+      if (!intent || intent === INTENTS.EMPTY) {
+        askGeneral(transcript); // AI couldn't find a command either — treat it as a genuine question
+        return;
+      }
+      memoryRef.current.lastIntent = intent;
+      executeIntent(intent, res?.params, transcript);
+    } catch (err) {
+      askGeneral(transcript); // interpret endpoint unavailable/failed — fall back to the conversational assistant
+    } finally {
+      setStatus((s) => (s === 'processing' ? 'idle' : s));
+    }
+  }, [languageEnglishName, getFarmerList, askGeneral, executeIntent]);
 
   const handleUtterance = useCallback((transcript) => {
     addLog('user', transcript);
     const navBundle = (i18nInstance.getResourceBundle(lang, 'translation') || {}).nav || {};
-    const intent = detectIntent(transcript, lang, navBundle);
-    memoryRef.current.lastIntent = intent.type;
-    switch (intent.type) {
-      case 'navigate': goTo(intent.target); break;
-      case 'bestMarket': findBestMarket(); break;
-      case 'why': explainWhy(); break;
-      case 'help': speak(welcomeMessage); break;
-      // "Help me sell" -> best current proxy is the Market Intelligence
-      // page, where the actual sell-decision flow (recommendation,
-      // nearby markets, buyers) lives.
-      case 'sellHelp': goTo('market'); break;
-      case 'question': askGeneral(transcript); break;
-      default: break;
+    const { intent, params } = detectAction(transcript, lang, navBundle);
+    memoryRef.current.lastIntent = intent;
+
+    if ((intent === INTENTS.ASK_AI || intent === INTENTS.EMPTY) && looksCommandShaped(transcript)) {
+      interpretViaAI(transcript);
+      return;
     }
-  }, [lang, goTo, findBestMarket, explainWhy, welcomeMessage, speak, askGeneral, addLog]);
+    executeIntent(intent, params, transcript);
+  }, [lang, looksCommandShaped, interpretViaAI, executeIntent, addLog]);
 
   // Speech Recognition: Web Speech API (free, browser-native). Not
   // continuously-listening (spec: "Not continuously listen forever") —
@@ -303,7 +504,7 @@ export function VoiceAssistantProvider({ children }) {
   // utterance (interimResults: false + the recognizer's own onend).
   const startListening = useCallback(() => {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRec) { speak(t('widget.voiceNotSupported')); return; }
+    if (!SpeechRec) { speak(t('voiceNotSupported')); return; }
     if (status === 'speaking') stop(); // don't listen over ourselves mid-sentence
     const rec = new SpeechRec();
     rec.lang = speechLocale;
@@ -311,7 +512,7 @@ export function VoiceAssistantProvider({ children }) {
     rec.maxAlternatives = 1;
     rec.onstart = () => setStatus('listening');
     rec.onresult = (e) => handleUtterance(e.results[0][0].transcript.trim());
-    rec.onerror = (e) => { setStatus('idle'); if (e.error === 'no-speech') speak(t('widget.voiceNoSpeech')); };
+    rec.onerror = (e) => { setStatus('idle'); if (e.error === 'no-speech') speak(t('voiceNoSpeech')); };
     rec.onend = () => setStatus((s) => (s === 'listening' ? 'idle' : s));
     recognizerRef.current = rec;
     rec.start();

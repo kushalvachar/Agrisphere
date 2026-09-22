@@ -38,6 +38,11 @@ export default function LanguageSwitcher({ compact = false }) {
             <button
               key={lang.code}
               onClick={() => {
+                // localStorage.setItem(
+                //   'language_manually_selected',
+                //   'true'
+                // );
+
                 i18n.changeLanguage(lang.code);
                 setOpen(false);
               }}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState,useCallback } from 'react';
 import { Sparkles, MapPin, Wheat, Warehouse, Loader2 } from 'lucide-react';
 import { api } from '../api/client.js';
 import StatCard from '../components/StatCard.jsx';
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [bestOption, setBestOption] = useState(null);
   const [priceTrend, setPriceTrend] = useState(null);
   const [error, setError] = useState('');
+  const analyzing = loading || (farmer && !recommendation && !error);
 
   useEffect(() => {
     api.getDemoFarmer().then((res) => setFarmer(res.farmer)).catch(() => {});
@@ -24,9 +25,10 @@ export default function Dashboard() {
     window.__agrisphereContext = { farmer, bestOption, recommendation };
   }, [farmer, bestOption, recommendation]);
 
-  const analyze = async () => {
+  const analyze = async (silent = false) => {
     if (!farmer) return;
-    setLoading(true); setError('');
+    if (!silent) setLoading(true);
+    setError('');
     try {
       const res = await api.getRecommendation({
         crop: farmer.currentCrop.crop,
@@ -41,9 +43,16 @@ export default function Dashboard() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // Smart fetch: as soon as the farmer loads, kick off the best-selling-option
+    // analysis right away (in parallel with rendering) instead of waiting for a click.
+    if (farmer && !recommendation) analyze(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farmer]);
 
   if (!farmer) {
     return <p className="text-slate-500">Loading demo farmer… (run <code>npm run seed</code> in backend/ if this never loads)</p>;
@@ -58,7 +67,7 @@ export default function Dashboard() {
             <MapPin size={14} /> {farmer.location.village}, {farmer.location.district}, {farmer.location.state}
           </p>
         </div>
-        <button onClick={analyze} disabled={loading} className="btn-primary">
+        <button onClick={() => analyze()} disabled={loading} className="btn-primary">
           {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
           Find My Best Selling Option
         </button>
@@ -69,14 +78,14 @@ export default function Dashboard() {
         <StatCard label="Quantity Ready" value={`${farmer.currentCrop.quantityTonnes} T`} icon={Warehouse} tone="intel" />
         <StatCard
           label="Best Net Realization"
-          value={bestOption ? `₹${bestOption.breakdown.netRealization}/kg` : '—'}
-          sub={bestOption ? bestOption.label : 'Run analysis to see'}
+          value={bestOption ? `₹${bestOption.breakdown.netRealization}/kg` : (analyzing ? '…' : '—')}
+          sub={bestOption ? bestOption.label : (analyzing ? 'Analyzing…' : 'Run analysis to see')}
           tone="agri"
         />
         <StatCard
           label="AI Recommendation"
-          value={recommendation ? recommendation.decision?.replace('_', ' ') : '—'}
-          sub={recommendation ? `${recommendation.confidence}% confidence` : 'Not yet analyzed'}
+          value={recommendation ? recommendation.decision?.replace('_', ' ') : (analyzing ? '…' : '—')}
+          sub={recommendation ? `${recommendation.confidence}% confidence` : (analyzing ? 'Analyzing…' : 'Not yet analyzed')}
           tone="warn"
         />
       </div>

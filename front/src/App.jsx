@@ -1,8 +1,6 @@
-import { useEffect } from 'react';
 import { Routes, Route, Navigate, useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LayoutDashboard, LineChart, Users, Boxes, Truck, MessagesSquare, Layers, Handshake, ClipboardList, Search, TrendingUp, ArrowLeft, BarChart3, Flame } from 'lucide-react';
-import { applyLocationLanguageIfUnset } from './i18n/locationLanguage.js';
 import { FarmerProvider, useFarmer, getRememberedFarmerId } from './context/FarmerContext.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import RequireAuth from './components/RequireAuth.jsx';
@@ -211,17 +209,6 @@ function BuyerScopedTransactions() {
 }
 
 export default function App() {
-  const { i18n } = useTranslation();
-
-  // Enhancement: on a first visit (no language explicitly chosen yet),
-  // default the language to the visitor's region instead of always
-  // opening in English. No-op for a returning visitor or after the
-  // first successful detection — see i18n/locationLanguage.js.
-  useEffect(() => {
-    applyLocationLanguageIfUnset(i18n);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
     <>
     <Routes>

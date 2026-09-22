@@ -24,6 +24,16 @@ export const api = {
   getDemoFarmer: () => request('/farmers/demo'),
   getFarmer: (id) => request(`/farmers/${id}`),
   listFarmers: (params = {}) => request(`/farmers?${new URLSearchParams(params)}`),
+  interpretVoiceCommand: ({ transcript, language, navTargets, farmerNames }) =>
+  request('/ai/interpret', {
+    method: 'POST',
+    body: JSON.stringify({
+      transcript,
+      language,
+      navTargets,
+      farmerNames,
+    }),
+  }),
   quickCreateFarmer: (body) => request('/farmers/quick-create', { method: 'POST', body: JSON.stringify(body) }),
   matchFarmersForBuyer: (body) => request('/farmers/match', { method: 'POST', body: JSON.stringify(body) }),
   getMarkets: (params = {}) => request(`/markets?${new URLSearchParams(params)}`),

@@ -56,6 +56,8 @@ export const SOURCE_STRINGS = {
   nearbyMarketsForCrop: 'Nearby Markets',
   useMyLocation: 'Use my location',
   updateMyLocation: 'Update my location',
+  detectingYourLocation: 'Detecting your location…',
+  priceAxisLabel: 'Price (₹/kg)',
   nearbyMarketsHint: "Uses your browser's real location and actual road/geodesic distance — sorted nearest first.",
   tapUseMyLocationPrefix: 'Tap "Use my location" to find markets within',
   tapUseMyLocationSuffix: 'of you.',
@@ -112,6 +114,20 @@ export const SOURCE_STRINGS = {
   voiceNoSpeech: "I didn't catch that. Please try again.",
   voiceNoFarmerProfile: "I don't have a farmer profile to work from here — please open this from your farmer dashboard.",
   voiceNoRecommendationYet: "I haven't recommended a market yet this session — ask me to find the best market first.",
+  // Voice Action Engine — Smart Matching
+  voiceNoLotsYet: "There isn't a Smart Lot to match yet — form one first from Create / View Smart Lots.",
+  voiceNoMatchesFound: 'No buyers are currently looking for this crop.',
+  voiceSmartMatchingFoundPrefix: 'Found',
+  voiceSmartMatchingFoundSuffix: 'matching buyers.',
+  voiceSmartMatchingTopBuyerPrefix: 'Top match:',
+  voiceSmartMatchingPercentSuffix: 'percent match.',
+  // Voice Action Engine — Profile / My Crops
+  voiceMyCropPrefix: 'Your current crop is',
+  voiceMyCropQuantitySuffix: 'tonnes,',
+  voiceMyCropGradeSuffix: 'grade.',
+  // Voice Action Engine — navigation / general
+  voiceNavUnavailable: "I couldn't find that page from here.",
+  voiceFeatureNotAvailable: "That isn't available in this version of the prototype yet.",
   voiceThinkingBestMarket: 'Finding the best market for you…',
   voiceAssistantTitle: 'Voice Assistant',
 

@@ -16,6 +16,7 @@
 // 'en') if geolocation is denied, unsupported, or the lookup fails —
 // this is a nice-to-have default, never a blocker.
 import { SUPPORTED_LANGUAGES } from './index.js';
+import STATE_LANGUAGE_MAP from './stateLanguageMap.json';
 
 const LANG_STORAGE_KEY = 'agrisphere_language'; // matches i18n/index.js detection.lookupLocalStorage
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
@@ -27,34 +28,8 @@ const GEOLOCATION_TIMEOUT_MS = 8000;
 // where Hindi is the primary language) intentionally falls through to
 // the 'hi' entries below or is left unmapped, so it keeps whatever
 // browser-locale default i18next already chose instead of a bad guess.
-const STATE_LANGUAGE_MAP = {
-  karnataka: 'kn',
-  'andhra pradesh': 'te',
-  telangana: 'te',
-  'tamil nadu': 'ta',
-  puducherry: 'ta',
-  kerala: 'ml',
-  lakshadweep: 'ml',
-  maharashtra: 'mr',
-  goa: 'mr',
-  'west bengal': 'bn',
-  tripura: 'bn',
-  gujarat: 'gu',
-  'dadra and nagar haveli and daman and diu': 'gu',
-  punjab: 'pa',
-  chandigarh: 'pa',
-  'uttar pradesh': 'hi',
-  bihar: 'hi',
-  'madhya pradesh': 'hi',
-  rajasthan: 'hi',
-  haryana: 'hi',
-  delhi: 'hi',
-  'nct of delhi': 'hi',
-  chhattisgarh: 'hi',
-  jharkhand: 'hi',
-  uttarakhand: 'hi',
-  'himachal pradesh': 'hi',
-};
+// Sourced from i18n/stateLanguageMap.json (kept as a plain JSON data
+// file, not inline here, so it can be reviewed/edited on its own).
 
 function getCurrentPosition() {
   return new Promise((resolve, reject) => {
@@ -152,14 +127,25 @@ export async function detectLanguageFromLocation() {
  * switcher while detection was still in flight would get silently
  * overwritten the moment detection finally resolved.
  */
+const MANUAL_LANGUAGE_KEY = 'language_manually_selected';
+
 export async function applyLocationLanguageIfUnset(i18n) {
-  if (localStorage.getItem(LANG_STORAGE_KEY)) {
-    console.log('[Language] A manually-chosen language is already saved — skipping location-based auto-detection.');
-    return;
-  }
+  // const manuallySelected =
+  //   localStorage.getItem(MANUAL_LANGUAGE_KEY) === 'true';
+
+  // if (manuallySelected) {
+  //   console.log(
+  //     '[Language] User manually selected a language earlier.'
+  //   );
+  //   return;
+  // }
+
   const code = await detectLanguageFromLocation();
-  if (code && !localStorage.getItem(LANG_STORAGE_KEY)) {
-    await i18n.changeLanguage(code); // i18next-browser-languagedetector persists this to localStorage[agrisphere_language] automatically
-    console.log('[Language] Language switched successfully');
+
+  if (code) {
+    await i18n.changeLanguage(code);
+    console.log(
+      `[Language] Auto-selected language from location: ${code}`
+    );
   }
 }

@@ -6,7 +6,7 @@
 // for data scoping and verification workflows).
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Sprout, Wheat, Users2, Factory, Loader2, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Sprout, Wheat, Users2, Factory, Loader2, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
 
@@ -14,6 +14,21 @@ const ROLE_META = {
   farmer: { label: 'Farmer', icon: Wheat, tone: 'agri' },
   fpo: { label: 'FPO / Producer Group', icon: Users2, tone: 'intel' },
   buyer: { label: 'Buyer', icon: Factory, tone: 'warn' },
+};
+
+// One-click demo login (feature request: "easy login for explaining
+// prototype"). These accounts are created by `npm run seed` in
+// backend/src/seed/seed.js (see DEMO_FPO_LOGIN/DEMO_BUYER_LOGIN there —
+// keep this in sync if that ever changes) and sign into a specific,
+// already-populated FPO/Buyer profile, so a presenter can jump straight
+// into a realistic dashboard without registering an account live.
+// Deliberately NOT offered for the farmer role: farmer onboarding is
+// already a single no-password form (FarmerQuickEntry below), so a demo
+// credential would just be a second, more roundabout way to do the same
+// thing.
+const DEMO_LOGIN = {
+  fpo: { identifier: 'fpo-demo@agrisphere.in', password: 'Demo@1234', accountLabel: 'Kolar Tomato Producers FPO' },
+  buyer: { identifier: 'buyer-demo@agrisphere.in', password: 'Demo@1234', accountLabel: 'ABC Foods (Demo)' },
 };
 
 const COMMON_CROPS = [
@@ -162,6 +177,8 @@ function FullAuth({ role }) {
   const [mode, setMode] = useState('register');
   const [error, setError] = useState('');
   const [form, setForm] = useState({});
+  const [demoLoading, setDemoLoading] = useState(false);
+  const demoCreds = DEMO_LOGIN[role] || DEMO_LOGIN.buyer; // guard against an unexpected :role in the URL
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -172,6 +189,18 @@ function FullAuth({ role }) {
     setError('');
     try { goToDashboard(await login(form.identifier, form.password)); }
     catch (err) { setError(err.message); }
+  };
+
+  // One-click demo login — signs straight in with the seeded demo
+  // account instead of making the presenter type credentials on stage.
+  // Uses the same `login()` call as the manual form, just with the demo
+  // identifier/password filled in for them (and shown below the button,
+  // so they can also type it manually if the seed data is ever different).
+  const handleDemoLogin = async () => {
+    setError(''); setDemoLoading(true);
+    try { goToDashboard(await login(demoCreds.identifier, demoCreds.password)); }
+    catch (err) { setError(`Demo login failed — has "npm run seed" been run on this backend? (${err.message})`); }
+    finally { setDemoLoading(false); }
   };
 
   const handleRegister = async (e) => {
@@ -199,6 +228,20 @@ function FullAuth({ role }) {
 
   return (
     <>
+      {/* One-click demo login (see DEMO_LOGIN above) */}
+      <button
+        type="button"
+        onClick={handleDemoLogin}
+        disabled={demoLoading || loading}
+        className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-intel-300 bg-intel-50 text-intel-700 font-semibold text-sm py-2.5 mb-2 hover:bg-intel-100 disabled:opacity-60"
+      >
+        {demoLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+        Try Demo {ROLE_META[role].label} Account
+      </button>
+      <p className="text-[11px] text-slate-400 text-center mb-4">
+        Signs in as "{demoCreds.accountLabel}" · {demoCreds.identifier} / {demoCreds.password}
+      </p>
+
       <div className="flex rounded-xl border border-slate-200 overflow-hidden mb-5">
         <button onClick={() => setMode('register')} className={`flex-1 py-2 text-sm font-medium ${mode === 'register' ? 'bg-agri-600 text-white' : 'bg-white text-slate-600'}`}>New here? Register</button>
         <button onClick={() => setMode('login')} className={`flex-1 py-2 text-sm font-medium ${mode === 'login' ? 'bg-agri-600 text-white' : 'bg-white text-slate-600'}`}>Login</button>

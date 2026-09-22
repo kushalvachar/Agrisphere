@@ -7,14 +7,14 @@
 // show "collecting real history" instead of a fabricated 30/60-day
 // chart, and fills in over real time as the backend's history
 // scheduler keeps polling it daily.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Layers, TrendingUp, TrendingDown, Minus, MapPin, ArrowUpCircle, ArrowDownCircle, Navigation, Loader2 } from 'lucide-react';
 import { api } from '../api/client.js';
 import MarketTable from '../components/MarketTable.jsx';
 import ArrivalVolumeChart from '../components/ArrivalVolumeChart.jsx';
-import { useTranslation } from 'react-i18next';
-import { useDynamicTranslation } from '../context/LanguageContext.jsx';
+import { useTranslation, useDynamicTranslation } from '../context/LanguageContext.jsx';
 
 const CROPS = ['Tomato', 'Onion', 'Potato', 'Paddy', 'Wheat', 'Cotton', 'Maize', 'Soybean'];
 const WINDOWS = [7, 15, 30];
@@ -30,7 +30,17 @@ const TREND_LABEL_KEY = { rising: 'trendRising', falling: 'trendFalling', stable
 
 export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId }) {
   const { t } = useTranslation();
-  const [crop, setCrop] = useState(initialCrop);
+  // Feature: Multilingual Voice AGENT — a voice command like "Show
+  // tomato prices" (SHOW_MARKET_PRICES/SHOW_TREND/SHOW_NEAREST_MARKET,
+  // see context/VoiceAssistantContext.jsx's goTo()) navigates here with
+  // a `?crop=` query param; picked up once on mount so the page opens
+  // straight on that crop instead of always defaulting to `initialCrop`.
+  // Ignored when farmerId-scoped (Market Intelligence Auto Flow already
+  // derives the crop from the farmer's own registered profile there,
+  // same precedence as the manual dropdown below).
+  const [searchParams] = useSearchParams();
+  const cropFromVoice = !farmerId ? searchParams.get('crop') : null;
+  const [crop, setCrop] = useState(cropFromVoice || initialCrop);
   const [days, setDays] = useState(30);
   const [markets, setMarkets] = useState([]);
   const [message, setMessage] = useState('');
@@ -68,6 +78,17 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
     prediction?.message || null,
     geoError || null,
   ]);
+
+  useEffect(() => {
+    // Handles the same-page case: voice says "show onion prices" while
+    // already sitting on the market page for tomato — React Router
+    // won't remount this component just because the query string
+    // changed, so the useState initializer above alone wouldn't catch
+    // a second voice-driven crop switch. This keeps `crop` in sync with
+    // `?crop=` on every change, not just the first mount.
+    if (cropFromVoice) setCrop(cropFromVoice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropFromVoice]);
 
   useEffect(() => {
     // Market Intelligence Auto Flow: when this page is farmer-scoped
@@ -139,7 +160,7 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
       .finally(() => setNearbyLoading(false));
   }, [crop, userLocation, radiusKm]);
 
-  const useMyLocation = () => {
+  const requestLocation = useCallback(() => {
     setGeoError('');
     if (!navigator.geolocation) {
       setGeoError('Geolocation is not supported by this browser.');
@@ -150,7 +171,21 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
       (err) => setGeoError(err.message || 'Could not get your location.'),
       { enableHighAccuracy: true, timeout: 10000 },
     );
-  };
+  }, []);
+
+  // Task: nearby markets should populate automatically on page load,
+  // not wait for the farmer to click "Use My Location" first. Runs
+  // once on mount — the browser's own geolocation permission prompt is
+  // allowed to appear without a user gesture (unlike, say, audio
+  // autoplay), and if it's already been granted/denied for this site
+  // the browser resolves instantly with no prompt at all. The button
+  // below (relabeled "Update My Location" once a location is set)
+  // still lets the farmer manually re-fetch — e.g. after actually
+  // travelling somewhere else — using the exact same function.
+  useEffect(() => {
+    requestLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     window.__agrisphereContext = {
@@ -168,6 +203,29 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
   }));
   const marketNames = [...new Set(trendSeries.flatMap((s) => Object.keys(s.markets)))].slice(0, 5);
   const colors = ['#1e8450', '#274bd1', '#ea580c', '#8bb0ff', '#a855f7'];
+
+  // Task ("increase scale" / "easy to understand"): recharts' default
+  // auto-domain fits the Y-axis tightly to the data's own min/max, which
+  // on a real price series (e.g. ₹18.20–₹19.40) draws a nearly-flat line
+  // that LOOKS dramatic or unreadable depending on rounding, with almost
+  // no headroom for the tooltip dot at the top/bottom of the chart. This
+  // computes a padded, round-number domain instead — e.g. that same
+  // series becomes a ₹15–₹22 axis with clearly-spaced ₹ gridlines — so
+  // the actual shape of the trend (rising/falling/flat) is honestly
+  // legible rather than either exaggerated or invisible.
+  const computeYDomain = (rows, keys) => {
+    const values = rows.flatMap((row) => keys.map((k) => row[k]).filter((v) => typeof v === 'number'));
+    if (!values.length) return ['auto', 'auto'];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min;
+    // Pad by ~20% of the span (or a flat ₹2 minimum for an almost-flat
+    // line) so the line never touches the top/bottom edge, then round
+    // to whole rupees so the axis ticks read as clean numbers.
+    const pad = Math.max(span * 0.2, 2);
+    return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)];
+  };
+  const priceTooltipFormatter = (value, name) => [`₹${value}/kg`, name];
 
   // Feature: Historical Market Data (MONGO_URI2) — merge each market's
   // independent {date, price} trend into one date-indexed table so a
@@ -195,7 +253,7 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold text-slate-900">{t('nav.market')}</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">{t('marketIntelligence')}</h1>
         <div className="flex items-center gap-2">
           {farmerId ? (
             // Market Intelligence Auto Flow: crop is auto-derived from the
@@ -233,17 +291,17 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
           <IntelCard
             icon={ArrowUpCircle}
             tone="text-agri-700 bg-agri-50"
-            label={t('widget.highestPriceMarket')}
+            label={t('highestPriceMarket')}
             market={intelligence.highestPriceMarket}
           />
           <IntelCard
             icon={ArrowDownCircle}
             tone="text-warn-700 bg-warn-50"
-            label={t('widget.lowestPriceMarket')}
+            label={t('lowestPriceMarket')}
             market={intelligence.lowestPriceMarket}
           />
           <div className="card">
-            <p className="text-xs text-slate-500 mb-2 flex items-center gap-1"><MapPin size={13} /> {t('widget.nearbyMarkets')}</p>
+            <p className="text-xs text-slate-500 mb-2 flex items-center gap-1"><MapPin size={13} /> {t('nearbyMarkets')}</p>
             {intelligence.nearbyMarkets?.length ? (
               <ul className="text-sm space-y-1.5">
                 {intelligence.nearbyMarkets.slice(0, 4).map((m) => (
@@ -253,14 +311,14 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
                   </li>
                 ))}
               </ul>
-            ) : <p className="text-sm text-slate-400">{t('widget.noNearbyMarketData')}</p>}
+            ) : <p className="text-sm text-slate-400">{t('noNearbyMarketData')}</p>}
           </div>
         </div>
       )}
 
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-          <h2 className="font-bold text-slate-800 flex items-center gap-2"><Navigation size={17} className="text-agri-600" /> {t('widget.nearbyMarkets')} — {crop}</h2>
+          <h2 className="font-bold text-slate-800 flex items-center gap-2"><Navigation size={17} className="text-agri-600" /> {t('nearbyMarketsForCrop')} — {crop}</h2>
           <div className="flex items-center gap-2">
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
               {RADII_KM.map((r) => (
@@ -273,30 +331,30 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
                 </button>
               ))}
             </div>
-            <button onClick={useMyLocation} className="text-xs font-semibold text-intel-700 hover:underline flex items-center gap-1">
-              <MapPin size={13} /> {userLocation ? t('widget.updateMyLocation') : t('widget.useMyLocation')}
+            <button onClick={requestLocation} className="text-xs font-semibold text-intel-700 hover:underline flex items-center gap-1">
+              <MapPin size={13} /> {userLocation ? t('updateMyLocation') : t('useMyLocation')}
             </button>
           </div>
         </div>
-        <p className="text-xs text-slate-400 mb-3">{t('widget.nearbyMarketsHint')}</p>
+        <p className="text-xs text-slate-400 mb-3">{t('nearbyMarketsHint')}</p>
         {geoError && <p className="text-xs text-warn-700 bg-warn-50 rounded-lg px-3 py-2 mb-2">{dynGeoError || geoError}</p>}
         {!userLocation && !geoError && (
-          <p className="text-sm text-slate-400">{t('widget.tapUseMyLocationPrefix')} {radiusKm}km {t('widget.tapUseMyLocationSuffix')}</p>
+          <p className="text-sm text-slate-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> {t('detectingYourLocation')}</p>
         )}
         {nearbyLoading && <Loader2 className="animate-spin text-slate-400 mx-auto my-4" size={20} />}
         {userLocation && !nearbyLoading && <MarketTable markets={nearbyMarkets || []} />}
       </div>
 
       <div className="card">
-        <h2 className="font-bold text-slate-800 mb-1">{t('widget.marketComparison')} — {crop}</h2>
-        <p className="text-xs text-slate-400 mb-3">{t('widget.marketComparisonHint')}</p>
+        <h2 className="font-bold text-slate-800 mb-1">{t('marketComparison')} — {crop}</h2>
+        <p className="text-xs text-slate-400 mb-3">{t('marketComparisonHint')}</p>
         <MarketTable markets={markets} />
       </div>
 
       <div className="card">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-bold text-slate-800">
-            {t('widget.priceTrend')} — {t('widget.lastDays')} {days} {t('widget.daysSuffix')} ({daysCollected} {t('widget.realDaysCollectedLabelShort')})
+            {t('priceTrend')} — {t('lastDays')} {days} {t('daysSuffix')} ({daysCollected} {t('realDaysCollectedLabelShort')})
           </h2>
           {prediction && prediction.direction !== 'insufficient_data' && PredStyle && (
             <span className={`badge border ${PredStyle.tone}`}>
@@ -305,17 +363,26 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
           )}
         </div>
         {prediction?.direction === 'insufficient_data' ? (
-          <p className="text-sm text-slate-500 py-6 text-center">{dynPredictionMessage || prediction.message || t('widget.insufficientTrendData')}</p>
+          <p className="text-sm text-slate-500 py-6 text-center">{dynPredictionMessage || prediction.message || t('insufficientTrendData')}</p>
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={Math.max(0, Math.floor(chartData.length / 8))} />
-              <YAxis tick={{ fontSize: 11 }} unit="₹" />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+          <ResponsiveContainer width="100%" height={340}>
+            <LineChart data={chartData} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} interval={Math.max(0, Math.floor(chartData.length / 8))} />
+              <YAxis
+                domain={computeYDomain(chartData, marketNames)}
+                tick={{ fontSize: 12 }}
+                tickCount={7}
+                tickFormatter={(v) => `₹${v}`}
+                label={{ value: t('priceAxisLabel'), angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
+              />
+              <Tooltip formatter={priceTooltipFormatter} contentStyle={{ fontSize: 13 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
               {marketNames.map((name, i) => (
-                <Line key={name} type="monotone" dataKey={name} stroke={colors[i % colors.length]} strokeWidth={2} dot={false} connectNulls />
+                <Line
+                  key={name} type="monotone" dataKey={name} stroke={colors[i % colors.length]}
+                  strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6 }} connectNulls
+                />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -329,20 +396,29 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
           message) when the dataset isn't configured or has no rows yet
           for this crop — see historicalMarketService.js. */}
       <div className="card">
-        <h2 className="font-bold text-slate-800 mb-1">{t('widget.historicalPriceTrend')} — {crop}</h2>
-        <p className="text-xs text-slate-400 mb-3">{t('widget.historicalPriceTrendHint')}</p>
+        <h2 className="font-bold text-slate-800 mb-1">{t('historicalPriceTrend')} — {crop}</h2>
+        <p className="text-xs text-slate-400 mb-3">{t('historicalPriceTrendHint')}</p>
         {!historicalAvailable || !topHistoricalMarkets.length ? (
-          <p className="text-sm text-slate-400 py-6 text-center">{t('widget.noHistoricalDataYet')}</p>
+          <p className="text-sm text-slate-400 py-6 text-center">{t('noHistoricalDataYet')}</p>
         ) : (
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={historicalChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} unit="₹" />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={historicalChartData} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <YAxis
+                domain={computeYDomain(historicalChartData, historicalMarketNames)}
+                tick={{ fontSize: 12 }}
+                tickCount={7}
+                tickFormatter={(v) => `₹${v}`}
+                label={{ value: t('priceAxisLabel'), angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
+              />
+              <Tooltip formatter={priceTooltipFormatter} contentStyle={{ fontSize: 13 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
               {historicalMarketNames.map((name, i) => (
-                <Line key={name} type="monotone" dataKey={name} stroke={colors[i % colors.length]} strokeWidth={2} dot connectNulls />
+                <Line
+                  key={name} type="monotone" dataKey={name} stroke={colors[i % colors.length]}
+                  strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6 }} connectNulls
+                />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -350,8 +426,8 @@ export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId })
       </div>
 
       <div className="card">
-        <h2 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><Layers size={18} className="text-intel-600" /> {t('widget.marketReportingActivity')} — {crop}</h2>
-        <p className="text-xs text-slate-400 mb-3">{t('widget.marketReportingActivityHint')}</p>
+        <h2 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><Layers size={18} className="text-intel-600" /> {t('marketReportingActivity')} — {crop}</h2>
+        <p className="text-xs text-slate-400 mb-3">{t('marketReportingActivityHint')}</p>
         <ArrivalVolumeChart series={activitySeries} stats={activityStats} message={activityMessage} />
       </div>
     </div>
@@ -371,7 +447,7 @@ function IntelCard({ icon: Icon, tone, label, market }) {
           <p className="text-sm text-slate-500">{market.district}, {market.state}</p>
           <p className="text-xl font-extrabold text-slate-900 mt-1">₹{market.modalPrice}/kg</p>
         </>
-      ) : <p className="text-sm text-slate-400">{t('widget.noLiveDataYet')}</p>}
+      ) : <p className="text-sm text-slate-400">{t('noLiveDataYet')}</p>}
     </div>
   );
 }
