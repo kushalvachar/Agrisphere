@@ -47,6 +47,7 @@ export function useVoiceNavRegistration(navItems = [], basePath = '') {
   useEffect(() => {
     setFarmerContext(farmer ? {
       farmerId: farmer.farmerId,
+      name: farmer.farmer?.name,
       crop: farmer.farmer?.currentCrop?.crop,
       quantityTonnes: farmer.farmer?.currentCrop?.quantityTonnes,
       grade: farmer.farmer?.currentCrop?.grade,
@@ -59,7 +60,8 @@ export default function VoiceAssistWidget() {
   const { t } = useTranslation();
   const { locationReady } = useLanguage();
   const {
-    status, muted, log, supported, welcomeMessage,
+    status, muted, log, supported,
+    contextualWelcomeMessage, suggestions, processCommand,
     speak, stop, toggleMute, startListening, stopListening, clearLog,
   } = useVoiceAssistant();
   const [open, setOpen] = useState(false);
@@ -90,7 +92,7 @@ export default function VoiceAssistWidget() {
     if (typeof window === 'undefined' || sessionStorage.getItem(WELCOMED_SESSION_KEY)) return;
     hasAttemptedWelcomeRef.current = true;
     sessionStorage.setItem(WELCOMED_SESSION_KEY, '1');
-    const timer = setTimeout(() => { if (!muted) { setOpen(true); speak(welcomeMessage); } }, 400);
+    const timer = setTimeout(() => { if (!muted) { setOpen(true); speak(contextualWelcomeMessage); } }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationReady]);
@@ -109,7 +111,7 @@ export default function VoiceAssistWidget() {
     // Guaranteed-to-work fallback for the autoplay welcome above —
     // opening the widget IS a user gesture, so speech is never blocked
     // here even if the earlier automatic attempt was.
-    if (willOpen && log.length === 0 && !muted) speak(welcomeMessage);
+    if (willOpen && log.length === 0 && !muted) speak(contextualWelcomeMessage);
   };
 
   return (
@@ -144,7 +146,7 @@ export default function VoiceAssistWidget() {
           {/* Conversation log */}
           <div className="p-3 h-56 overflow-y-auto space-y-2 text-sm bg-slate-50">
             {!log.length && (
-              <p className="text-slate-400 text-xs leading-relaxed">{welcomeMessage}</p>
+              <p className="text-slate-400 text-xs leading-relaxed">{contextualWelcomeMessage}</p>
             )}
             {log.map((m, i) => (
               <div
@@ -165,6 +167,26 @@ export default function VoiceAssistWidget() {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Feature: Page-Aware Voice Assistance — suggestion chips.
+              Tapping one runs it through the exact same intent pipeline
+              a spoken utterance would (context/VoiceAssistantContext.jsx's
+              processCommand === handleUtterance), so it navigates/speaks
+              identically either way. */}
+          {!!suggestions?.length && (
+            <div className="px-3 pt-2 pb-1 border-t border-slate-100 flex flex-wrap gap-1.5 bg-white">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => processCommand(suggestion)}
+                  disabled={status === 'processing'}
+                  className="text-xs px-2.5 py-1.5 rounded-full bg-agri-50 text-agri-700 border border-agri-100 hover:bg-agri-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Mic control */}
           <div className="p-3 border-t border-slate-100 space-y-2">
