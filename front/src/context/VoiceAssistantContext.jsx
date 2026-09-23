@@ -24,7 +24,7 @@
 // gracefully instead of showing a mic button that silently does nothing.
 import { createContext, useContext, useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLanguage, useTranslation as useDictTranslation } from './LanguageContext.jsx';
+import { useLanguage, useTranslation as useDictTranslation, useDynamicTranslation } from './LanguageContext.jsx';
 import i18nInstance, { getLanguageMeta } from '../i18n/index.js';
 import { api } from '../api/client.js';
 import { detectAction, INTENTS } from '../voice/actionEngine.js';
@@ -166,10 +166,12 @@ export function VoiceAssistantProvider({ children }) {
 
   // Feature: Page-Aware Voice Assistance — per-page suggestion chips.
   // Pure lookup against pageContextRef/farmerRef (no navigation, no
-  // speaking), exposed both as a callable helper AND as the memoized
-  // `suggestions` value below, same "helper + exposed value" shape the
-  // rest of this file already uses (resolveNavPath vs. goTo, etc.).
-  const getContextualSuggestions = useCallback(() => {
+  // speaking), authored in English only — localized below via
+  // useDynamicTranslation, the SAME runtime-string translation pipeline
+  // pages/MarketIntelligence.jsx already uses for its own dynamic
+  // (non-dictionary) text, so these chips respect the current language
+  // exactly like the rest of the app's dynamic content does.
+  const getContextualSuggestionsEnglish = useCallback(() => {
     const crop = farmerRef.current?.crop;
     switch (pageContextRef.current) {
       case 'dashboard':
@@ -202,44 +204,50 @@ export function VoiceAssistantProvider({ children }) {
     }
   }, []);
 
-  // Feature: Page-Aware Voice Assistance — contextual welcome message.
-  // Falls back to the existing multilingual `welcomeMessage` (Kannada
-  // hardcode + translate-pipeline languages) for any page/state that
-  // doesn't have a specific scripted greeting of its own (Market
-  // Intelligence, Buyer Discovery, or a Dashboard visit before the
-  // farmer's crop is known yet) — so multilingual support is unaffected
-  // outside the two screens this feature explicitly scripts.
-  const getContextualWelcomeMessage = useCallback(() => {
-    const page = pageContextRef.current;
-    const farmer = farmerRef.current;
+  // English-authored suggestion list, recomputed only when the page or
+  // farmer profile changes (see pageContext/farmerVersion state above).
+  const rawSuggestions = useMemo(
+    () => getContextualSuggestionsEnglish(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pageContext, farmerVersion, getContextualSuggestionsEnglish],
+  );
+  // Localized suggestion chips — English in, current-language out (or
+  // English instantly while a translation is in flight/unavailable,
+  // same graceful-fallback behavior useDynamicTranslation already gives
+  // MarketIntelligence.jsx's dynamic strings).
+  const suggestions = useDynamicTranslation(rawSuggestions);
 
-    if (page === 'dashboard' && farmer?.crop) {
+  // Feature: Page-Aware Voice Assistance — contextual welcome message.
+  // Landing/Dashboard get a specific scripted greeting (English-authored,
+  // then localized the same way as the suggestions above); every other
+  // page/state (Market Intelligence, Buyer Discovery, or a Dashboard
+  // visit before the farmer's crop is known yet) falls back to the
+  // EXISTING multilingual `welcomeMessage` (Kannada hardcode + the
+  // static-dictionary translate pipeline) completely unchanged — so
+  // multilingual support for those is unaffected by this feature.
+  const rawContextualWelcomeEnglish = useMemo(() => {
+    const farmer = farmerRef.current;
+    if (pageContext === 'dashboard' && farmer?.crop) {
       const firstName = (farmer.name || '').trim().split(/\s+/)[0] || '';
-      const suggestionLine = getContextualSuggestions().join(', ');
+      const suggestionLine = rawSuggestions.join(', ');
       return `Namaste${firstName ? ' ' + firstName : ''}. I see your current crop is ${farmer.crop}. You can ask me: ${suggestionLine}. How can I help you?`;
     }
-
-    if (page === 'landing') {
-      const suggestionLine = getContextualSuggestions().join(', ');
+    if (pageContext === 'landing') {
+      const suggestionLine = rawSuggestions.join(', ');
       return `Namaste. Welcome to AgriSphere. You can ask me: ${suggestionLine}. How can I help you today?`;
     }
+    return null; // signals: use the existing multilingual `welcomeMessage` as-is, don't translate it again
+  }, [pageContext, farmerVersion, rawSuggestions]);
 
-    return welcomeMessage;
-  }, [welcomeMessage, getContextualSuggestions]);
+  // Always called (rules of hooks) — harmless no-op (empty string) when
+  // rawContextualWelcomeEnglish is null, i.e. whenever we're going to use
+  // the already-localized `welcomeMessage` instead anyway.
+  const translatedContextualWelcome = useDynamicTranslation(rawContextualWelcomeEnglish || '');
 
-  // Exposed reactive values — recompute only when the page or the
-  // farmer profile actually changes (see pageContext/farmerVersion
-  // state above), not on every render.
-  const suggestions = useMemo(
-    () => getContextualSuggestions(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pageContext, farmerVersion, getContextualSuggestions],
-  );
-  const contextualWelcomeMessage = useMemo(
-    () => getContextualWelcomeMessage(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pageContext, farmerVersion, getContextualWelcomeMessage],
-  );
+  const contextualWelcomeMessage = useMemo(() => {
+    if (rawContextualWelcomeEnglish == null) return welcomeMessage;
+    return translatedContextualWelcome || rawContextualWelcomeEnglish;
+  }, [rawContextualWelcomeEnglish, translatedContextualWelcome, welcomeMessage]);
 
   // Conversational Assistance fallback — ANY question that isn't one of
   // the hand-covered action intents above goes here, in every one of
