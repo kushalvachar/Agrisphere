@@ -83,7 +83,22 @@ export function VoiceAssistantProvider({ children }) {
   const memoryRef = useRef({ lastRecommendation: null, lastIntent: null });
   const recognizerRef = useRef(null);
   const navConfigRef = useRef({ basePath: '', navItems: [] });
-  const farmerRef = useRef(null); // { farmerId, crop, quantityTonnes, grade, storageAvailable } | null
+  const farmerRef = useRef(null); // { farmerId, name, crop, quantityTonnes, grade, storageAvailable } | null
+
+  // Feature: Page-Aware Voice Assistance. Which "screen" the voice
+  // assistant should currently tailor its suggestions/welcome to —
+  // 'landing' | 'dashboard' | 'market' | 'buyers'. A ref (read inside
+  // non-reactive helpers below, same pattern as farmerRef/navConfigRef)
+  // PLUS a tiny bit of state so that anything exposed via context value
+  // (contextualWelcomeMessage/suggestions) actually re-renders when the
+  // page changes — a ref alone wouldn't trigger that.
+  const pageContextRef = useRef('landing');
+  const [pageContext, setPageContextState] = useState('landing');
+  // Bumped whenever setFarmerContext runs, for the same reason: farmerRef
+  // is a ref (handleUtterance/executeIntent read it directly, no need to
+  // re-render for that), but suggestions/contextualWelcomeMessage below
+  // DO need to recompute once the farmer's crop becomes known.
+  const [farmerVersion, setFarmerVersion] = useState(0);
 
   const speechLocale = getLanguageMeta(lang).speechLocale;
   const languageEnglishName = getLanguageMeta(lang).englishName;
@@ -95,7 +110,20 @@ export function VoiceAssistantProvider({ children }) {
   const setNavContext = useCallback((basePath, navItems) => {
     navConfigRef.current = { basePath: basePath || '', navItems: navItems || [] };
   }, []);
-  const setFarmerContext = useCallback((farmerCtx) => { farmerRef.current = farmerCtx || null; }, []);
+  const setFarmerContext = useCallback((farmerCtx) => {
+    farmerRef.current = farmerCtx || null;
+    setFarmerVersion((v) => v + 1);
+  }, []);
+
+  // Feature: Page-Aware Voice Assistance. Called by whichever page mounts
+  // (Landing, FarmerDashboard, MarketIntelligence, BuyerDiscovery) so the
+  // assistant's suggestion chips + welcome message match what's actually
+  // useful on THAT screen, exactly like setNavContext/setFarmerContext
+  // above already do for navigation/farmer data.
+  const setPageContext = useCallback((page) => {
+    pageContextRef.current = page || 'landing';
+    setPageContextState(page || 'landing');
+  }, []);
 
   const addLog = useCallback((from, text) => setLog((l) => [...l.slice(-19), { from, text }]), []);
 
@@ -135,6 +163,83 @@ export function VoiceAssistantProvider({ children }) {
     return [1, 2, 3, 4, 5].map((n) => t(`voiceWelcome${n}`)).join(' ');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, t]);
+
+  // Feature: Page-Aware Voice Assistance — per-page suggestion chips.
+  // Pure lookup against pageContextRef/farmerRef (no navigation, no
+  // speaking), exposed both as a callable helper AND as the memoized
+  // `suggestions` value below, same "helper + exposed value" shape the
+  // rest of this file already uses (resolveNavPath vs. goTo, etc.).
+  const getContextualSuggestions = useCallback(() => {
+    const crop = farmerRef.current?.crop;
+    switch (pageContextRef.current) {
+      case 'dashboard':
+        return [
+          `Today's ${crop || 'crop'} price`,
+          'Find buyers for my crop',
+          'Run smart matching',
+          'Show transport options',
+        ];
+      case 'market':
+        return [
+          'Best market nearby',
+          'Price trend',
+          'Compare markets',
+          'Highest paying market',
+        ];
+      case 'buyers':
+        return [
+          'Run smart matching',
+          'Find buyers for my crop',
+        ];
+      case 'landing':
+      default:
+        return [
+          "Show today's mandi prices",
+          'Find nearby markets',
+          'Help me login',
+          'Register as farmer',
+        ];
+    }
+  }, []);
+
+  // Feature: Page-Aware Voice Assistance — contextual welcome message.
+  // Falls back to the existing multilingual `welcomeMessage` (Kannada
+  // hardcode + translate-pipeline languages) for any page/state that
+  // doesn't have a specific scripted greeting of its own (Market
+  // Intelligence, Buyer Discovery, or a Dashboard visit before the
+  // farmer's crop is known yet) — so multilingual support is unaffected
+  // outside the two screens this feature explicitly scripts.
+  const getContextualWelcomeMessage = useCallback(() => {
+    const page = pageContextRef.current;
+    const farmer = farmerRef.current;
+
+    if (page === 'dashboard' && farmer?.crop) {
+      const firstName = (farmer.name || '').trim().split(/\s+/)[0] || '';
+      const suggestionLine = getContextualSuggestions().join(', ');
+      return `Namaste${firstName ? ' ' + firstName : ''}. I see your current crop is ${farmer.crop}. You can ask me: ${suggestionLine}. How can I help you?`;
+    }
+
+    if (page === 'landing') {
+      const suggestionLine = getContextualSuggestions().join(', ');
+      return `Namaste. Welcome to AgriSphere. You can ask me: ${suggestionLine}. How can I help you today?`;
+    }
+
+    return welcomeMessage;
+  }, [welcomeMessage, getContextualSuggestions]);
+
+  // Exposed reactive values — recompute only when the page or the
+  // farmer profile actually changes (see pageContext/farmerVersion
+  // state above), not on every render.
+  const suggestions = useMemo(
+    () => getContextualSuggestions(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pageContext, farmerVersion, getContextualSuggestions],
+  );
+  const contextualWelcomeMessage = useMemo(
+    () => getContextualWelcomeMessage(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pageContext, farmerVersion, getContextualWelcomeMessage],
+  );
 
   // Conversational Assistance fallback — ANY question that isn't one of
   // the hand-covered action intents above goes here, in every one of
@@ -528,10 +633,21 @@ if (typeof window.__runBestSellingOption === "function") {
 
   const value = useMemo(() => ({
     status, muted, log, supported, lang, speechLocale, welcomeMessage,
+    // Feature: Page-Aware Voice Assistance
+    setPageContext, contextualWelcomeMessage, suggestions,
     setNavContext, setFarmerContext,
     speak, stop, toggleMute, startListening, stopListening,
+    // Lets a UI element (e.g. a suggestion chip) run a command exactly
+    // as if it had been spoken, through the SAME intent-detection path
+    // handleUtterance already runs for a real mic transcript.
+    processCommand: handleUtterance,
     clearLog: () => setLog([]),
-  }), [status, muted, log, supported, lang, speechLocale, welcomeMessage, setNavContext, setFarmerContext, speak, stop, toggleMute, startListening, stopListening]);
+  }), [
+    status, muted, log, supported, lang, speechLocale, welcomeMessage,
+    setPageContext, contextualWelcomeMessage, suggestions,
+    setNavContext, setFarmerContext, speak, stop, toggleMute, startListening, stopListening,
+    handleUtterance,
+  ]);
 
   return <VoiceAssistantContext.Provider value={value}>{children}</VoiceAssistantContext.Provider>;
 }
