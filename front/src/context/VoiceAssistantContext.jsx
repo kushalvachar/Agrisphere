@@ -218,36 +218,53 @@ export function VoiceAssistantProvider({ children }) {
   const suggestions = useDynamicTranslation(rawSuggestions);
 
   // Feature: Page-Aware Voice Assistance — contextual welcome message.
-  // Landing/Dashboard get a specific scripted greeting (English-authored,
-  // then localized the same way as the suggestions above); every other
-  // page/state (Market Intelligence, Buyer Discovery, or a Dashboard
-  // visit before the farmer's crop is known yet) falls back to the
-  // EXISTING multilingual `welcomeMessage` (Kannada hardcode + the
+  // Landing/Dashboard get a specific scripted greeting. IMPORTANT: this
+  // is built from SHORT, simple skeleton phrases translated individually
+  // (via useDynamicTranslation, same as the suggestion chips above),
+  // rather than one long combined sentence with an embedded comma-list —
+  // sending the whole run-on sentence (with its colons/commas/
+  // apostrophes) as a single string to the translation API produced
+  // garbled/partly-untranslated output in testing (e.g. "Today's mandi"
+  // left in English mid-sentence). Short skeleton phrases translate
+  // reliably, and the (already independently-translated) `suggestions`
+  // are simply joined into the message client-side afterwards — no
+  // second, riskier translation pass over the combined text.
+  // Every other page/state (Market Intelligence, Buyer Discovery, or a
+  // Dashboard visit before the farmer's crop is known yet) falls back to
+  // the EXISTING multilingual `welcomeMessage` (Kannada hardcode + the
   // static-dictionary translate pipeline) completely unchanged — so
   // multilingual support for those is unaffected by this feature.
-  const rawContextualWelcomeEnglish = useMemo(() => {
+  const rawWelcomeSkeleton = useMemo(() => {
     const farmer = farmerRef.current;
     if (pageContext === 'dashboard' && farmer?.crop) {
-      const firstName = (farmer.name || '').trim().split(/\s+/)[0] || '';
-      const suggestionLine = rawSuggestions.join(', ');
-      return `Namaste${firstName ? ' ' + firstName : ''}. I see your current crop is ${farmer.crop}. You can ask me: ${suggestionLine}. How can I help you?`;
+      return ['Namaste', 'I see your current crop is', 'You can ask me:', 'How can I help you?'];
     }
     if (pageContext === 'landing') {
-      const suggestionLine = rawSuggestions.join(', ');
-      return `Namaste. Welcome to AgriSphere. You can ask me: ${suggestionLine}. How can I help you today?`;
+      return ['Namaste. Welcome to AgriSphere.', 'You can ask me:', 'How can I help you today?'];
     }
-    return null; // signals: use the existing multilingual `welcomeMessage` as-is, don't translate it again
-  }, [pageContext, farmerVersion, rawSuggestions]);
+    return null; // signals: use the existing multilingual `welcomeMessage` as-is
+  }, [pageContext, farmerVersion]);
 
-  // Always called (rules of hooks) — harmless no-op (empty string) when
-  // rawContextualWelcomeEnglish is null, i.e. whenever we're going to use
-  // the already-localized `welcomeMessage` instead anyway.
-  const translatedContextualWelcome = useDynamicTranslation(rawContextualWelcomeEnglish || '');
+  // Always called (rules of hooks) — harmless no-op ([]) when
+  // rawWelcomeSkeleton is null, i.e. whenever we're going to use the
+  // already-localized `welcomeMessage` instead anyway.
+  const translatedWelcomeSkeleton = useDynamicTranslation(rawWelcomeSkeleton || []);
 
   const contextualWelcomeMessage = useMemo(() => {
-    if (rawContextualWelcomeEnglish == null) return welcomeMessage;
-    return translatedContextualWelcome || rawContextualWelcomeEnglish;
-  }, [rawContextualWelcomeEnglish, translatedContextualWelcome, welcomeMessage]);
+    if (!rawWelcomeSkeleton) return welcomeMessage;
+    const suggestionLine = suggestions.join(', ');
+
+    if (pageContext === 'dashboard') {
+      const farmer = farmerRef.current;
+      const firstName = (farmer?.name || '').trim().split(/\s+/)[0] || '';
+      const [namaste, cropLine, askLine, helpLine] = translatedWelcomeSkeleton;
+      return `${namaste}${firstName ? ' ' + firstName : ''}. ${cropLine} ${farmer?.crop}. ${askLine} ${suggestionLine}. ${helpLine}`;
+    }
+
+    // landing
+    const [introLine, askLine, helpLine] = translatedWelcomeSkeleton;
+    return `${introLine} ${askLine} ${suggestionLine}. ${helpLine}`;
+  }, [rawWelcomeSkeleton, translatedWelcomeSkeleton, suggestions, pageContext]);
 
   // Conversational Assistance fallback — ANY question that isn't one of
   // the hand-covered action intents above goes here, in every one of
