@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { Sparkles, MapPin, Loader2, ShieldCheck, Truck, TrendingUp, TrendingDown, Minus, Clock3 } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useFarmer } from '../context/FarmerContext.jsx';
+import { useVoiceAssistant } from '../context/VoiceAssistantContext.jsx';
 import { useLanguage, useTranslation } from '../context/LanguageContext.jsx';
 import { getLanguageMeta } from '../i18n/index.js';
 import StorageDiscovery from '../components/StorageDiscovery.jsx';
@@ -25,6 +26,15 @@ export default function FarmerDashboard() {
   // hardcoding a single match.
   const { farmerId, farmer, loading: farmerLoading, error: farmerError } = useFarmer();
   const { lang } = useLanguage(); // Feature: AI Recommendation Translation
+  // Feature: Page-Aware Voice Assistance — tells the shared voice
+  // assistant it's on the Dashboard, so its suggestion chips/welcome
+  // message switch to dashboard-specific ones (see
+  // context/VoiceAssistantContext.jsx). Farmer name/crop themselves
+  // already reach the assistant via useVoiceNavRegistration's
+  // setFarmerContext (components/VoiceAssistWidget.jsx) — nothing to
+  // change here for that part.
+  const { setPageContext } = useVoiceAssistant();
+  useEffect(() => { setPageContext('dashboard'); }, [setPageContext]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null); // { recommended, alternatives, why }
   const [error, setError] = useState('');

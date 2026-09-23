@@ -15,6 +15,7 @@ import { api } from '../api/client.js';
 import MarketTable from '../components/MarketTable.jsx';
 import ArrivalVolumeChart from '../components/ArrivalVolumeChart.jsx';
 import { useTranslation, useDynamicTranslation } from '../context/LanguageContext.jsx';
+import { useVoiceAssistant } from '../context/VoiceAssistantContext.jsx';
 
 const CROPS = ['Tomato', 'Onion', 'Potato', 'Paddy', 'Wheat', 'Cotton', 'Maize', 'Soybean'];
 const WINDOWS = [7, 15, 30];
@@ -30,6 +31,11 @@ const TREND_LABEL_KEY = { rising: 'trendRising', falling: 'trendFalling', stable
 
 export default function MarketIntelligence({ initialCrop = 'Tomato', farmerId }) {
   const { t } = useTranslation();
+  // Feature: Page-Aware Voice Assistance — tells the shared voice
+  // assistant it's on Market Intelligence, so its suggestion chips
+  // switch to market-specific ones (see context/VoiceAssistantContext.jsx).
+  const { setPageContext } = useVoiceAssistant();
+  useEffect(() => { setPageContext('market'); }, [setPageContext]);
   // Feature: Multilingual Voice AGENT — a voice command like "Show
   // tomato prices" (SHOW_MARKET_PRICES/SHOW_TREND/SHOW_NEAREST_MARKET,
   // see context/VoiceAssistantContext.jsx's goTo()) navigates here with

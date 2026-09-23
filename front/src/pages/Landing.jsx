@@ -1,10 +1,19 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sprout, ArrowRight, Landmark, Database, Brain, Target } from 'lucide-react';
 import { useTranslation } from '../context/LanguageContext.jsx';
+import { useVoiceAssistant } from '../context/VoiceAssistantContext.jsx';
 
 export default function Landing() {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  // Feature: Page-Aware Voice Assistance — tells the shared voice
+  // assistant it's on the Landing page, so the first-time auto-welcome
+  // (components/VoiceAssistWidget.jsx) and suggestion chips use the
+  // landing set (mandi prices / nearby markets / login / register)
+  // instead of the generic multilingual welcome.
+  const { setPageContext } = useVoiceAssistant();
+  useEffect(() => { setPageContext('landing'); }, [setPageContext]);
 
   const featureCards = [
     { icon: Database, title: t('landingUnderstandsTitle'), desc: t('landingUnderstandsDesc') },

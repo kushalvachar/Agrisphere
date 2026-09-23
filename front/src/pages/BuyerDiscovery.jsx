@@ -5,6 +5,7 @@ import { api } from '../api/client.js';
 import BuyerCard from '../components/BuyerCard.jsx';
 import QualityGradeModal from '../components/QualityGradeModal.jsx';
 import DemandForecastPanel from '../components/DemandForecastPanel.jsx';
+import { useVoiceAssistant } from '../context/VoiceAssistantContext.jsx';
 
 const CROPS = ['Tomato', 'Onion', 'Potato', 'Paddy'];
 // Feature 4: institutional buyer types the farmer can filter by, alongside plain traders
@@ -22,6 +23,13 @@ export default function BuyerDiscovery({
   initialGrade = 'A',
 }) {
   const navigate = useNavigate();
+  // Feature: Page-Aware Voice Assistance (future-ready) — registers
+  // 'buyers' as the current page so a future contextual-suggestions
+  // entry for this screen (see context/VoiceAssistantContext.jsx's
+  // getContextualSuggestions) has somewhere to hook in; no other
+  // behavior on this page changes.
+  const { setPageContext } = useVoiceAssistant();
+  useEffect(() => { setPageContext('buyers'); }, [setPageContext]);
   // "View Details" on the Farmer dashboard links here with ?buyer=<name>
   // for the specific buyer the farmer clicked on — used below to scroll
   // to and highlight that one buyer's card instead of leaving the farmer
