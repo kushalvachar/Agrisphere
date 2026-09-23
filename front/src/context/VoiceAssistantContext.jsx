@@ -237,10 +237,25 @@ export function VoiceAssistantProvider({ children }) {
   const rawWelcomeSkeleton = useMemo(() => {
     const farmer = farmerRef.current;
     if (pageContext === 'dashboard' && farmer?.crop) {
-      return ['Namaste', 'I see your current crop is', 'You can ask me:', 'How can I help you?'];
+      return ['Namaste', 'I see your current crop is', 'You can ask me', 'How can I help you'];
     }
     if (pageContext === 'landing') {
-      return ['Namaste. Welcome to AgriSphere.', 'You can ask me:', 'How can I help you today?'];
+      // Kept as separate single-sentence fragments — NOT 'Namaste. Welcome
+      // to AgriSphere.' as one string. That two-sentence string, sent as
+      // a single array item, made the translate backend split it into two
+      // translated pieces internally; the response then had one more
+      // item than the request, translateTexts() treated the mismatched
+      // count as a malformed response and threw, and the WHOLE batch
+      // (not just that one item) fell back to English — which is exactly
+      // what showed up on screen. One sentence per array item avoids that.
+      // Also intentionally 'How can I help you' with NO trailing "today"
+      // — that specific wording ("...help you today") was observed to
+      // come back from the translate backend with "today" left
+      // untranslated mid-sentence (e.g. Kannada text with a literal
+      // English "Today" spliced in). Dropping the trailing "today" avoids
+      // that glitch; the greeting doesn't lose any meaningful content by
+      // leaving it out.
+      return ['Namaste', 'Welcome to AgriSphere', 'You can ask me', 'How can I help you'];
     }
     return null; // signals: use the existing multilingual `welcomeMessage` as-is
   }, [pageContext, farmerVersion]);
@@ -258,12 +273,14 @@ export function VoiceAssistantProvider({ children }) {
       const farmer = farmerRef.current;
       const firstName = (farmer?.name || '').trim().split(/\s+/)[0] || '';
       const [namaste, cropLine, askLine, helpLine] = translatedWelcomeSkeleton;
-      return `${namaste}${firstName ? ' ' + firstName : ''}. ${cropLine} ${farmer?.crop}. ${askLine} ${suggestionLine}. ${helpLine}`;
+      // Punctuation added back in HERE, client-side, after translation —
+      // never sent to the translate API embedded in the phrase itself.
+      return `${namaste}${firstName ? ' ' + firstName : ''}. ${cropLine} ${farmer?.crop}. ${askLine}: ${suggestionLine}. ${helpLine}?`;
     }
 
     // landing
-    const [introLine, askLine, helpLine] = translatedWelcomeSkeleton;
-    return `${introLine} ${askLine} ${suggestionLine}. ${helpLine}`;
+    const [namaste, welcomeLine, askLine, helpLine] = translatedWelcomeSkeleton;
+    return `${namaste}. ${welcomeLine}. ${askLine}: ${suggestionLine}. ${helpLine}?`;
   }, [rawWelcomeSkeleton, translatedWelcomeSkeleton, suggestions, pageContext]);
 
   // Conversational Assistance fallback — ANY question that isn't one of
@@ -354,13 +371,30 @@ if (typeof window.__runBestSellingOption === "function") {
   // `?crop=` query param — pages/MarketIntelligence.jsx reads it to
   // preselect that crop instead of always opening on its own default —
   // and is also read out so the farmer hears which crop was opened.
-  const goTo = useCallback((targetKey, { crop } = {}) => {
+  //
+  // Command vs. information routing: `transcript`, when given, is the
+  // farmer's own original words for this utterance. If this page hasn't
+  // registered `targetKey` as a reachable nav target (most commonly: a
+  // suggestion chip or spoken command on the public Landing page, before
+  // login, asking about mandi prices/markets — genuinely an INFORMATION
+  // request, not a page that exists to navigate to from here), that's
+  // treated as a cue this was really an informational question, and it's
+  // routed to the conversational AI assistant (askGeneral) instead of
+  // dead-ending with "I couldn't find that page from here." A true
+  // navigation command that really can't be fulfilled still gets a
+  // sensible spoken answer this way, and a real navigation target still
+  // navigates exactly as before whenever the path DOES resolve.
+  const goTo = useCallback((targetKey, { crop, transcript } = {}) => {
     const { path, label } = resolveNavPath(targetKey);
-    if (!path) { speak(t('voiceNavUnavailable')); return; }
+    if (!path) {
+      if (transcript) { askGeneral(transcript); return; }
+      speak(t('voiceNavUnavailable'));
+      return;
+    }
     navigate(crop ? `${path}?crop=${encodeURIComponent(crop)}` : path);
     const spoken = label || targetKey;
     speak(crop ? `${spoken} — ${crop}` : spoken);
-  }, [navigate, resolveNavPath, speak, t]);
+  }, [navigate, resolveNavPath, speak, t, askGeneral]);
 
   // Feature: Multilingual Voice AGENT — RUN_SMART_MATCHING. Follows the
   // spec's own numbered flow: identify the current farmer (or, for an
@@ -524,13 +558,13 @@ if (typeof window.__runBestSellingOption === "function") {
   // identically regardless of which detector produced it.
   const executeIntent = useCallback(async (intent, params, transcript) => {
     switch (intent) {
-      case INTENTS.OPEN_DASHBOARD: goTo('dashboard'); break;
-      case INTENTS.OPEN_MARKET_INTELLIGENCE: goTo('market', params); break;
-      case INTENTS.OPEN_BUYER_DEMAND: goTo('buyers'); break;
-      case INTENTS.OPEN_OFFERS: goTo('offers'); break;
-      case INTENTS.OPEN_TRANSACTIONS: goTo('transactions'); break;
-      case INTENTS.OPEN_ANALYTICS: goTo('analytics'); break;
-      case INTENTS.OPEN_AI_CHAT: goTo('assistant'); break;
+      case INTENTS.OPEN_DASHBOARD: goTo('dashboard', { transcript }); break;
+      case INTENTS.OPEN_MARKET_INTELLIGENCE: goTo('market', { ...params, transcript }); break;
+      case INTENTS.OPEN_BUYER_DEMAND: goTo('buyers', { transcript }); break;
+      case INTENTS.OPEN_OFFERS: goTo('offers', { transcript }); break;
+      case INTENTS.OPEN_TRANSACTIONS: goTo('transactions', { transcript }); break;
+      case INTENTS.OPEN_ANALYTICS: goTo('analytics', { transcript }); break;
+      case INTENTS.OPEN_AI_CHAT: goTo('assistant', { transcript }); break;
       // No Profile/Settings page exists in this prototype yet, and "FPO
       // Section" isn't a thing inside the Farmer/Buyer apps (FPO is its
       // own separate role, not a section within another role) — said
@@ -543,12 +577,12 @@ if (typeof window.__runBestSellingOption === "function") {
         else speak(t('voiceFeatureNotAvailable'));
         break;
       case INTENTS.OPEN_NAMED_DASHBOARD: openNamedDashboard(params?.name); break;
-      case INTENTS.SHOW_MARKET_PRICES: goTo('market', params); break;
-      case INTENTS.SHOW_TREND: goTo('market', params); break;
-      case INTENTS.SHOW_NEAREST_MARKET: goTo('market', params); break;
+      case INTENTS.SHOW_MARKET_PRICES: goTo('market', { ...params, transcript }); break;
+      case INTENTS.SHOW_TREND: goTo('market', { ...params, transcript }); break;
+      case INTENTS.SHOW_NEAREST_MARKET: goTo('market', { ...params, transcript }); break;
       case INTENTS.SHOW_BEST_MARKET: await findBestMarket(); break;
       case INTENTS.RUN_SMART_MATCHING: runSmartMatching(); break;
-      case INTENTS.SHOW_MATCH_RESULTS: goTo('buyers'); break;
+      case INTENTS.SHOW_MATCH_RESULTS: goTo('buyers', { transcript }); break;
       case INTENTS.CHANGE_LANGUAGE: changeLanguageAction(params?.languageCode); break;
       case INTENTS.SHOW_MY_CROPS: showMyCropInfo(); break;
       case INTENTS.SHOW_MY_LOTS: showMyLots(); break;
