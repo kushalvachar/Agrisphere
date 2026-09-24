@@ -54,16 +54,17 @@ export default function BuyerFindProduce() {
   const makeOffer = async (item) => {
     if (item.kind === 'lot') {
       const lot = item.data;
+      const lotFpoName = lot.fpoName || FPO_NAME; // older lots saved before FPO names were stored fall back to the demo FPO
       await api.createOffer({
         lotId: lot._id,
-        farmerName: FPO_NAME, // attributes the offer to the FPO that owns this Smart Lot
+        farmerName: lotFpoName, // attributes the offer to the FPO that owns this Smart Lot
         buyerName: buyerName,
         crop: lot.crop,
         grade: lot.grade,
         quantityTonnes: Math.min(quantityRequiredTonnes, lot.totalQuantityTonnes),
         pricePerKg: 22,
       });
-      alert(`Offer sent to ${FPO_NAME} — they'll see it in their Offers tab.`);
+      alert(`Offer sent to ${lotFpoName} — they'll see it in their Offers tab.`);
     } else {
       const farmer = item.data;
       await api.createOffer({
@@ -101,16 +102,19 @@ export default function BuyerFindProduce() {
           <div key={`${item.kind}-${item.data._id}`} className="card space-y-2">
             <div className="flex items-center justify-between">
               {item.kind === 'lot' ? (
-                <h3 className="font-bold text-slate-800 flex items-center gap-1.5"><Boxes size={16} className="text-agri-600" /> {item.data.crop} Smart Lot</h3>
+                <h3 className="font-bold text-slate-800 flex items-center gap-1.5 min-w-0">
+                  <Boxes size={16} className="text-agri-600 shrink-0" />
+                  <span className="truncate">{item.data.fpoName || `${item.data.crop} Smart Lot`}</span>
+                </h3>
               ) : (
                 <h3 className="font-bold text-slate-800 flex items-center gap-1.5"><User size={16} className="text-intel-600" /> {item.data.name}</h3>
               )}
-              <span className="badge bg-intel-50 text-intel-700 font-bold">{item.matchPercent}% match</span>
+              <span className="badge bg-intel-50 text-intel-700 font-bold shrink-0 ml-2">{item.matchPercent}% match</span>
             </div>
 
             {item.kind === 'lot' ? (
               <p className="text-sm text-slate-500">
-                {item.data.totalQuantityTonnes}T · Grade {item.data.grade} · {item.data.contributions.length} contributing farmers
+                {item.data.crop} Smart Lot · {item.data.totalQuantityTonnes}T · Grade {item.data.grade} · {item.data.contributions.length} contributing farmers
                 <span className="badge bg-slate-100 text-slate-500 text-[10px] ml-2">FPO Lot</span>
               </p>
             ) : (

@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { Plus, Trash2, Boxes } from 'lucide-react';
 import { api } from '../api/client.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { FPO_NAME } from './FPODashboard.jsx';
 
 export default function FPOLot() {
+  const { user, displayName } = useAuth();
+  // Only trust the logged-in name if the account is actually an FPO (the /demo
+  // route can be opened while signed in as some other role, or signed out).
+  const fpoName = (user?.role === 'fpo' && displayName) || FPO_NAME;
   const [crop, setCrop] = useState('Tomato');
   const [grade, setGrade] = useState('A');
   const [contributions, setContributions] = useState([
@@ -22,7 +28,7 @@ export default function FPOLot() {
   const total = contributions.reduce((s, c) => s + Number(c.quantityTonnes || 0), 0);
 
   const createLot = async () => {
-    const res = await api.createLot({ crop, grade, contributions });
+    const res = await api.createLot({ crop, grade, contributions, fpoName });
     const detail = await api.getLot(res.lot._id);
     setLot(detail.lot);
     setCompatibleBuyers(detail.compatibleBuyers);
@@ -31,7 +37,7 @@ export default function FPOLot() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-extrabold text-slate-900">FPO Smart Lot Creation</h1>
-      <p className="text-slate-500 text-sm -mt-4">Pool small individual quantities into one buyer-ready lot.</p>
+      <p className="text-slate-500 text-sm -mt-4">Pool small individual quantities into one buyer-ready lot. Buyers will see this lot as listed by <b>{fpoName}</b>.</p>
 
       <div className="card space-y-4">
         <div className="flex gap-3">
@@ -81,7 +87,7 @@ export default function FPOLot() {
         <div className="card">
           <h2 className="font-bold text-slate-800 mb-2">Smart Lot Created</h2>
           <p className="text-3xl font-extrabold text-agri-700">{lot.totalQuantityTonnes} T {lot.crop}</p>
-          <p className="text-slate-500 text-sm mb-4">Grade {lot.grade} · Status: {lot.status}</p>
+          <p className="text-slate-500 text-sm mb-4">Grade {lot.grade} · Status: {lot.status} · Listed by {lot.fpoName || fpoName}</p>
 
           <h3 className="font-semibold text-slate-700 text-sm mb-2">Compatible Buyer Demand</h3>
           {compatibleBuyers.length ? (
