@@ -2,15 +2,44 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import Lot from '../models/Lot.js';
 import Buyer from '../models/Buyer.js';
+import User from '../models/User.js';
+import FPO from '../models/FPO.js';
+import { verifyToken } from '../services/authService.js';
 import { matchLotsToBuyerRequirement } from '../services/matchingService.js';
 
-// POST /api/lots  { crop, grade, contributions: [{farmerName, quantityTonnes}] }
+// If the request carries a valid FPO login token, returns that FPO's id + name
+// (the trusted source). Returns null otherwise (e.g. the un-logged-in /demo flow).
+async function resolveOwningFpo(req) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const decoded = token ? verifyToken(token) : null;
+  if (!decoded || decoded.role !== 'fpo') return null;
+
+  const user = await User.findById(decoded.sub).lean();
+  if (!user || user.profileModel !== 'FPO') return null;
+
+  const fpo = await FPO.findById(user.profileId).lean();
+  return fpo ? { fpoId: fpo._id, fpoName: fpo.organizationName } : null;
+}
+
+// POST /api/lots  { crop, grade, contributions: [{farmerName, quantityTonnes}], fpoName? }
+// The owning FPO is taken from the logged-in FPO's token when present, so buyers
+// see the real FPO name on the lot. `fpoName` in the body is only a fallback.
 export const createLot = asyncHandler(async (req, res) => {
-  const { crop, grade, contributions } = req.body;
+  const { crop, grade, contributions, fpoName } = req.body;
   if (!crop || !Array.isArray(contributions) || !contributions.length) {
     return res.status(400).json({ success: false, message: 'crop and contributions[] are required' });
   }
-  const lot = await Lot.create({ crop, grade, contributions, status: 'FORMING' });
+
+  const owner = await resolveOwningFpo(req);
+  const lot = await Lot.create({
+    crop,
+    grade,
+    contributions,
+    status: 'FORMING',
+    fpoId: owner?.fpoId,
+    fpoName: owner?.fpoName || (typeof fpoName === 'string' && fpoName.trim() ? fpoName.trim() : undefined),
+  });
   res.status(201).json({ success: true, lot });
 });
 

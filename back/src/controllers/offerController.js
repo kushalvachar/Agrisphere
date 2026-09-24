@@ -1,6 +1,8 @@
 // controllers/offerController.js — Feature 3: Digital Offer & Negotiation System
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import mongoose from 'mongoose';
 import Offer from '../models/Offer.js';
+import Lot from '../models/Lot.js';
 import { createOffer, addCounterOffer, resolveOffer } from '../services/offerService.js';
 import { explainOfferNegotiation } from '../services/geminiService.js';
 
@@ -10,7 +12,15 @@ export const createOfferHandler = asyncHandler(async (req, res) => {
   if (!farmerName || !buyerName || !crop || !quantityTonnes || !pricePerKg) {
     return res.status(400).json({ success: false, message: 'farmerName, buyerName, crop, quantityTonnes and pricePerKg are required' });
   }
-  const offer = await createOffer({ lotId, farmerName, buyerName, crop, grade, quantityTonnes, pricePerKg });
+  // If the offer is against a Smart Lot, attribute it to the FPO that owns the
+  // lot (source of truth) so it lands in the correct FPO's Offers tab.
+  let ownerName = farmerName;
+  if (lotId && mongoose.isValidObjectId(lotId)) {
+    const lot = await Lot.findById(lotId).select('fpoName').lean();
+    if (lot?.fpoName) ownerName = lot.fpoName;
+  }
+
+  const offer = await createOffer({ lotId, farmerName: ownerName, buyerName, crop, grade, quantityTonnes, pricePerKg });
   res.status(201).json({ success: true, offer });
 });
 
