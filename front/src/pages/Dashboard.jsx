@@ -63,9 +63,11 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Welcome back, {farmer.name}</h1>
-          <p className="text-slate-500 flex items-center gap-1 text-sm mt-1">
-            <MapPin size={14} /> {farmer.location.village}, {farmer.location.district}, {farmer.location.state}
-          </p>
+          {[farmer.location?.village, farmer.location?.district, farmer.location?.state].some(Boolean) && (
+            <p className="text-slate-500 flex items-center gap-1 text-sm mt-1">
+              <MapPin size={14} /> {[farmer.location?.village, farmer.location?.district, farmer.location?.state].filter(Boolean).join(', ')}
+            </p>
+          )}
         </div>
         <button onClick={() => analyze()} disabled={loading} className="btn-primary">
           {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}

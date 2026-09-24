@@ -57,7 +57,7 @@ export default function FarmerDashboard() {
     if (!farmer) return;
     setLoading(true); setError('');
     try {
-      const { crop, quantityTonnes, grade, storageAvailable } = farmer.currentCrop;
+      const { crop, quantityTonnes, grade, storageAvailable } = farmer.currentCrop || {};
 
       // Existing deterministic endpoints — reused as-is, not reimplemented.
       const [recRes, marketsRes, buyersRes] = await Promise.all([
@@ -132,15 +132,20 @@ export default function FarmerDashboard() {
   if (farmerError) return <p className="text-sm text-red-500">{farmerError}</p>;
   if (farmerLoading || !farmer) return <p className="text-slate-500">{t('farmerLoadingDashboard')}</p>;
 
-  const { crop, quantityTonnes, grade } = farmer.currentCrop;
+  const { crop, quantityTonnes, grade } = farmer.currentCrop || {};
+  // Farmers created via "Add New Farmer" only give name + crop, so they have
+  // no saved location — only show the location line when there is one.
+  const locationText = [farmer.location?.district, farmer.location?.state].filter(Boolean).join(', ');
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <div>
         <h1 className="text-2xl font-extrabold text-slate-900">{t('farmerWelcome')} {farmer.name.split(' ')[0]}</h1>
-        <p className="text-slate-500 flex items-center gap-1 text-sm mt-1">
-          <MapPin size={14} /> {farmer.location.district}, {farmer.location.state}
-        </p>
+        {locationText && (
+          <p className="text-slate-500 flex items-center gap-1 text-sm mt-1">
+            <MapPin size={14} /> {locationText}
+          </p>
+        )}
       </div>
 
       <div className="card flex items-center justify-between">
