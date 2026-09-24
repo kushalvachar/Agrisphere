@@ -37,15 +37,17 @@ export default function StorageDiscovery({ farmerId }) {
 
   return (
     <div className="card">
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-        <h2 className="font-bold text-slate-800 flex items-center gap-2"><Warehouse size={17} className="text-agri-600" /> Nearby Storage &amp; Cold Storage</h2>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+      {/* Phones: title, then a full-width radius selector, then a full-width
+          "Use my location" button, each on its own row. sm+: original single-row layout. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-3">
+        <h2 className="font-bold text-slate-800 flex items-center gap-2"><Warehouse size={17} className="text-agri-600 shrink-0" /> Nearby Storage &amp; Cold Storage</h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex w-full sm:w-auto rounded-xl border border-slate-200 overflow-hidden">
             {RADII_KM.map((r) => (
-              <button key={r} onClick={() => changeRadius(r)} className={`px-2.5 py-1.5 text-xs font-medium ${radiusKm === r ? 'bg-agri-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{r}km</button>
+              <button key={r} onClick={() => changeRadius(r)} className={`flex-1 sm:flex-none px-2.5 py-2 sm:py-1.5 text-xs font-medium ${radiusKm === r ? 'bg-agri-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{r}km</button>
             ))}
           </div>
-          <button onClick={useMyLocation} className="text-xs font-semibold text-intel-700 hover:underline flex items-center gap-1"><MapPin size={13} /> Use my location</button>
+          <button onClick={useMyLocation} className="w-full sm:w-auto justify-center text-xs font-semibold text-intel-700 border border-intel-100 sm:border-0 rounded-xl py-2 sm:py-0 hover:bg-intel-50 sm:hover:bg-transparent sm:hover:underline flex items-center gap-1"><MapPin size={13} /> Use my location</button>
         </div>
       </div>
       {error && <p className="text-xs text-warn-700 bg-warn-50 rounded-lg px-3 py-2 mb-2">{error}</p>}

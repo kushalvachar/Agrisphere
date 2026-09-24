@@ -56,6 +56,7 @@ export default function BuyerDiscovery({
   const [forecast, setForecast] = useState(null);
   const [forecastAI, setForecastAI] = useState(null);
   const [forecastMessage, setForecastMessage] = useState('');
+  const [loadingForecast, setLoadingForecast] = useState(true);
 
   useEffect(() => {
     const params = buyerType !== 'All Types' ? { crop, buyerType } : { crop };
@@ -65,11 +66,12 @@ export default function BuyerDiscovery({
   }, [crop, buyerType]);
 
   useEffect(() => {
+    setLoadingForecast(true);
     api.getDemandForecast({ crop }).then((res) => {
       setForecast(res.forecast);
       setForecastAI(res.aiExplanation);
       setForecastMessage(res.message || '');
-    });
+    }).finally(() => setLoadingForecast(false));
   }, [crop]);
 
   useEffect(() => {
@@ -170,7 +172,7 @@ export default function BuyerDiscovery({
           {!displayList.length && <p className="text-slate-500 text-sm">No buyers currently seeking {crop} in this category.</p>}
         </div>
         <div>
-          <DemandForecastPanel forecast={forecast} aiExplanation={forecastAI} message={forecastMessage} />
+          <DemandForecastPanel forecast={forecast} aiExplanation={forecastAI} message={forecastMessage} loading={loadingForecast} />
         </div>
       </div>
 

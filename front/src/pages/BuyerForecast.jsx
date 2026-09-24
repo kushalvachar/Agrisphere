@@ -1,4 +1,3 @@
-
 // pages/BuyerForecast.jsx — thin wrapper around the existing Demand
 // Forecasting feature, scoped to this buyer's own procurement history
 // (already seeded for "ABC Foods (Demo)" — see backend seed data).
@@ -17,13 +16,15 @@ export default function BuyerForecast() {
   const [forecast, setForecast] = useState(null);
   const [aiExplanation, setAiExplanation] = useState(null);
   const [message, setMessage] = useState('');
+  const [loadingForecast, setLoadingForecast] = useState(true);
 
   useEffect(() => {
+    setLoadingForecast(true);
     api.getDemandForecast({ crop, buyerName }).then((res) => {
       setForecast(res.forecast);
       setAiExplanation(res.aiExplanation);
       setMessage(res.message || '');
-    });
+    }).finally(() => setLoadingForecast(false));
   }, [crop, buyerName]);
 
   return (
@@ -34,7 +35,7 @@ export default function BuyerForecast() {
           {CROPS.map((c) => <option key={c}>{c}</option>)}
         </select>
       </div>
-      <DemandForecastPanel forecast={forecast} aiExplanation={aiExplanation} message={message} />
+      <DemandForecastPanel forecast={forecast} aiExplanation={aiExplanation} message={message} loading={loadingForecast} />
     </div>
   );
 }

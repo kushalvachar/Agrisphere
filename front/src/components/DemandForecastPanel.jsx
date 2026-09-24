@@ -5,7 +5,30 @@ import { TrendingUp, Sparkles, ShieldAlert } from 'lucide-react';
 
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function DemandForecastPanel({ forecast, aiExplanation, message }) {
+// Lightweight skeleton shown while the forecast + AI explanation are being
+// fetched, so the panel doesn't flash "No forecast available yet." during
+// the request and instead reads as "still loading" (mirrors the shape of
+// the loaded card below: title, big number, 3-stat row, AI blurb).
+function DemandForecastSkeleton() {
+  return (
+    <div className="card animate-pulse" aria-busy="true" aria-label="Loading forecast">
+      <div className="flex items-center justify-between mb-3">
+        <div className="h-4 w-32 bg-slate-200 rounded" />
+        <div className="h-3 w-16 bg-slate-100 rounded" />
+      </div>
+      <div className="h-8 w-24 bg-slate-200 rounded mb-3" />
+      <div className="h-3 w-48 bg-slate-100 rounded mb-3" />
+      <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+        <div className="h-8 bg-slate-100 rounded" />
+        <div className="h-8 bg-slate-100 rounded" />
+        <div className="h-8 bg-slate-100 rounded" />
+      </div>
+    </div>
+  );
+}
+
+export default function DemandForecastPanel({ forecast, aiExplanation, message, loading }) {
+  if (loading) return <DemandForecastSkeleton />;
   if (!forecast) return <p className="text-slate-500 text-sm">{message || 'No forecast available yet.'}</p>;
 
   return (

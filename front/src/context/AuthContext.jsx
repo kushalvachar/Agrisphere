@@ -73,6 +73,24 @@ export function AuthProvider({ children }) {
     }
   }, [persist]);
 
+  // Backs the "Edit" action in components/UserDetailsCard.jsx. Sends the
+  // edited profile fields (fpo/buyer only) to the backend, then merges
+  // the response — or, failing that, the optimistic draft — into both
+  // the stored session and local state so the popover reflects the
+  // change immediately without a full re-login.
+  const updateProfile = useCallback(async (profilePatch) => {
+    setLoading(true);
+    try {
+      const res = await api.updateProfile(profilePatch);
+      const nextUser = { ...user, profile: { ...user?.profile, ...(res.user?.profile || profilePatch) } };
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser));
+      setUser(nextUser);
+      return nextUser;
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
   const logout = useCallback(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USER_KEY);
@@ -91,7 +109,7 @@ export function AuthProvider({ children }) {
   const displayName = profile?.name || profile?.organizationName || null;
 
   return (
-    <AuthContext.Provider value={{ user, profile, displayName, loading, login, registerFarmer, registerFPO, registerBuyer, logout }}>
+    <AuthContext.Provider value={{ user, profile, displayName, loading, login, registerFarmer, registerFPO, registerBuyer, updateProfile, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -7,7 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { Languages, Check } from 'lucide-react';
 import { SUPPORTED_LANGUAGES } from '../i18n/index.js';
 
-export default function LanguageSwitcher({ compact = false }) {
+// `menuPlacement`:
+//   'below-right' (default) — header use: menu drops down, right edges aligned
+//   'above-left'            — mobile drawer use: the switcher sits at the LEFT
+//                             of the drawer's last row, so a right-aligned,
+//                             downward menu ran off the left edge and below
+//                             the screen. Open upward, left-aligned instead.
+export default function LanguageSwitcher({ compact = false, menuPlacement = 'below-right' }) {
   const { i18n, t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -17,10 +23,19 @@ export default function LanguageSwitcher({ compact = false }) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
     document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
+    document.addEventListener('touchstart', onClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('touchstart', onClickOutside);
+    };
   }, []);
 
   const current = SUPPORTED_LANGUAGES.find((l) => l.code === i18n.language) || SUPPORTED_LANGUAGES[0];
+
+  const placementClass =
+    menuPlacement === 'above-left'
+      ? 'left-0 bottom-full mb-2 origin-bottom-left'
+      : 'right-0 mt-1';
 
   return (
     <div className="relative shrink-0" ref={ref}>
@@ -33,7 +48,9 @@ export default function LanguageSwitcher({ compact = false }) {
         {!compact && <span className="hidden sm:inline">{current.nativeName}</span>}
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50 max-h-72 overflow-y-auto">
+        <div
+          className={`absolute ${placementClass} w-44 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50 max-h-72 overflow-y-auto overscroll-contain`}
+        >
           {SUPPORTED_LANGUAGES.map((lang) => (
             <button
               key={lang.code}
@@ -46,7 +63,7 @@ export default function LanguageSwitcher({ compact = false }) {
                 i18n.changeLanguage(lang.code);
                 setOpen(false);
               }}
-              className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
+              className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-slate-50 text-left"
             >
               <span>{lang.nativeName}</span>
               {lang.code === current.code && <Check size={14} className="text-agri-600" />}

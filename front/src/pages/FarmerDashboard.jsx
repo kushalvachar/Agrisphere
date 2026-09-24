@@ -148,14 +148,20 @@ export default function FarmerDashboard() {
         )}
       </div>
 
-      <div className="card flex items-center justify-between">
-        <div>
+      {/* Stacks on phones (crop info on top, full-width button below) so the
+          button can't squeeze/overlap the crop text; side-by-side from sm up. */}
+      <div className="card flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <p className="text-sm text-slate-500">{t('farmerCurrentCrop')}</p>
-          <p className="text-2xl font-extrabold text-slate-800">{crop}</p>
+          <p className="text-2xl font-extrabold text-slate-800 break-words">{crop}</p>
           <p className="text-sm text-slate-500">{quantityTonnes}T · {t('farmerGradeLabel')} {grade}</p>
         </div>
-        <button onClick={findBestOption} disabled={loading} className="btn-primary text-base px-6 py-3">
-          {loading ? <Loader2 className="animate-spin" size={20} /> : <Sparkles size={20} />}
+        <button
+          onClick={findBestOption}
+          disabled={loading}
+          className="btn-primary justify-center text-center text-base px-6 py-3 w-full sm:w-auto sm:shrink-0"
+        >
+          {loading ? <Loader2 className="animate-spin shrink-0" size={20} /> : <Sparkles className="shrink-0" size={20} />}
           {t('farmerFindBestOption')}
         </button>
       </div>

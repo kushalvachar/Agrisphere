@@ -116,9 +116,9 @@ export default function AIAssistantWidget({ navItems = [] }) {
   useEffect(() => () => recognitionRef.current?.stop(), []);
 
   return (
-    <div className="fixed bottom-5 right-5 z-50">
+    <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50">
       {open && (
-        <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200 mb-3 flex flex-col overflow-hidden">
+        <div className="w-[calc(100vw-2rem)] sm:w-96 max-w-96 bg-white rounded-2xl shadow-xl border border-slate-200 mb-3 flex flex-col overflow-hidden">
           <div className="bg-agri-600 text-white px-4 py-3 flex items-center justify-between">
             <span className="font-semibold flex items-center gap-2"><Sparkles size={16} /> Farmer AI Assistant</span>
             <div className="flex items-center gap-2">

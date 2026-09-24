@@ -86,6 +86,9 @@ export const api = {
   registerBuyer: (body) => request('/auth/register/buyer', { method: 'POST', body: JSON.stringify(body) }),
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   me: () => request('/auth/me'),
+  // Used by the "Edit" action in components/UserDetailsCard.jsx (fpo/buyer
+  // account popover) to persist changes to the logged-in user's profile.
+  updateProfile: (body) => request('/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
 
   // --- Phase 7: Quality Requirement System (persisted submissions) ---
   submitQuality: (body) => request('/quality/submissions', { method: 'POST', body: JSON.stringify(body) }),
