@@ -7,6 +7,10 @@ const contributionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const lotSchema = new mongoose.Schema({
+  // Which FPO created this lot. fpoName is stored (denormalized) so buyers can
+  // see WHO is selling straight from the lot document, without a second lookup.
+  fpoId: { type: mongoose.Schema.Types.ObjectId, ref: 'FPO' },
+  fpoName: String,
   crop: { type: String, required: true },
   grade: String,
   contributions: [contributionSchema],
